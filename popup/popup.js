@@ -106,6 +106,18 @@ document.addEventListener('DOMContentLoaded', async function () {
     );
   });
 
+  chrome.storage.local.get(['expandReasoningFieldsEnabled']).then((result) => {
+    observeCheckbox(
+      'expandReasoningFieldsEnabled',
+      result.expandReasoningFieldsEnabled,
+      (reloadCurrentTab, _, currentCheckboxValue) => {
+        chrome.storage.local
+          .set({ expandReasoningFieldsEnabled: currentCheckboxValue })
+          .then(reloadCurrentTab);
+      },
+    );
+  });
+
   chrome.storage.local.get(['netsuiteFieldNamesEnabled']).then((result) => {
     observeCheckbox(
       'netsuiteFieldNamesEnabled',

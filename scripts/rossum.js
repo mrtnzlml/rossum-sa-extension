@@ -51,7 +51,7 @@ if (htmlBodyElement == null) {
 }
 
 const observeHtmlBody = (
-  options /*: { +schemaAnnotationsEnabled: boolean, +expandFormulasEnabled: boolean } */,
+  options /*: { +schemaAnnotationsEnabled: boolean, +expandFormulasEnabled: boolean, +expandReasoningFieldsEnabled: boolean } */,
 ) => {
   const observer = new MutationObserver((mutations /*: Array<MutationRecord> */) => {
     const checkAddedNode = (addedNode /*: Node */) => {
@@ -67,6 +67,13 @@ const observeHtmlBody = (
 
       if (options.expandFormulasEnabled === true) {
         const button = document.querySelector('button[aria-label="Show source code"]');
+        if (button != null) {
+          button.click();
+        }
+      }
+
+      if (options.expandReasoningFieldsEnabled === true) {
+        const button = Array.from(document.querySelectorAll('button[data-sentry-source-file="ReasoningTiles.tsx"]')).find(button => button.textContent.trim() === 'Show options');
         if (button != null) {
           button.click();
         }
@@ -90,10 +97,11 @@ const observeHtmlBody = (
   });
 };
 
-chrome.storage.local.get(['schemaAnnotationsEnabled', 'expandFormulasEnabled']).then((result) => {
+chrome.storage.local.get(['schemaAnnotationsEnabled', 'expandFormulasEnabled', 'expandReasoningFieldsEnabled']).then((result) => {
   observeHtmlBody({
     schemaAnnotationsEnabled: result.schemaAnnotationsEnabled,
     expandFormulasEnabled: result.expandFormulasEnabled,
+    expandReasoningFieldsEnabled: result.expandReasoningFieldsEnabled,
   });
 });
 

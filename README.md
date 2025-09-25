@@ -13,6 +13,7 @@ All of these options are configurable and can be turned on/off on demand:
 
 - shows datapoint `schema_id` on the annotation screen (headers and line items)
 - expands formula field definitions by default
+- expands reasoning field options by default
 - adds `devFeatureEnabled` toggle
 - adds `devDebugEnabled` toggle
 
