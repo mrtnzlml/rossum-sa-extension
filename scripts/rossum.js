@@ -105,35 +105,107 @@ const observeHtmlBody = (
 };
 
 function initScrollLock(element /*: Element */) {
-  let lastScrollTop = 0;
-  let previousScrollTop = 0;
+  if (!(element instanceof HTMLElement)) return;
+
+  let savedScrollTop = 0;
+  let lockUntil = 0;
   let isRestoring = false;
+  let currentPathname = window.location.pathname;
+
+  let userScrollUntil = 0;
+  let userScrollTimer = null;
 
   element.__saScrollLockAttached = true;
+  console.log('[SA Extension] Scroll lock initialized for #sidebar-scrollable, pathname:', currentPathname);
+
+  requestAnimationFrame(() => {
+    if (element instanceof HTMLElement) element.scrollTop = 0;
+  });
+
+  const markUserScrollActive = () => {
+    const now = Date.now();
+    userScrollUntil = now + 250;
+
+    if (userScrollTimer) clearTimeout(userScrollTimer);
+    userScrollTimer = setTimeout(() => {
+    }, 260);
+  };
+
+  element.addEventListener('wheel', markUserScrollActive, { passive: true });
+  element.addEventListener('touchstart', markUserScrollActive, { passive: true });
+  element.addEventListener('mousedown', markUserScrollActive, { passive: true });
+  element.addEventListener('keydown', markUserScrollActive, { passive: true });
 
   element.addEventListener(
     'scroll',
     () => {
-      if (!isRestoring && element instanceof HTMLElement) {
-        const currentScroll = element.scrollTop;
-        
-        // Only prevent async resets to top (not manual fast scrolling)
-        // Async resets typically jump to 0 or very close to 0
-        if (lastScrollTop > 200 && currentScroll < 20) {
+      if (!(element instanceof HTMLElement)) return;
+
+      markUserScrollActive();
+
+      const now = Date.now();
+      const cur = element.scrollTop;
+
+      if (!isRestoring && now <= userScrollUntil) {
+        savedScrollTop = cur;
+        return;
+      }
+
+      if (!isRestoring && now < lockUntil && savedScrollTop > 50) {
+        if (Math.abs(cur - savedScrollTop) > 5) {
           isRestoring = true;
-          element.scrollTop = previousScrollTop;
+          element.scrollTop = savedScrollTop;
           setTimeout(() => {
             isRestoring = false;
           }, 0);
-        } else {
-          previousScrollTop = lastScrollTop;
-          lastScrollTop = currentScroll;
         }
       }
     },
-    { passive: true }
+    { passive: true },
   );
+
+  const proto = Object.getPrototypeOf(element);
+  const desc = Object.getOwnPropertyDescriptor(proto, 'scrollTop');
+  if (desc && typeof desc.set === 'function' && typeof desc.get === 'function') {
+    Object.defineProperty(element, 'scrollTop', {
+      configurable: true,
+      enumerable: true,
+      get() { return desc.get.call(this); },
+      set(v) {
+        const now = Date.now();
+        const desired = Number(v) || 0;
+
+        if (now > userScrollUntil && now < lockUntil && savedScrollTop > 50) {
+          if (Math.abs(desired - savedScrollTop) > 5) {
+            return desc.set.call(this, savedScrollTop);
+          }
+        }
+        return desc.set.call(this, v);
+      },
+    });
+  }
+
+  const armLockWindow = (ms) => {
+    if (savedScrollTop <= 50) return; 
+    lockUntil = Date.now() + ms;
+    element.scrollTop = savedScrollTop;
+    requestAnimationFrame(() => {
+      if (element.scrollTop !== savedScrollTop) element.scrollTop = savedScrollTop;
+    });
+  };
+
+  const contentObserver = new MutationObserver(() => {
+    if (window.location.pathname !== currentPathname) {
+      currentPathname = window.location.pathname;
+      armLockWindow(800);
+      return;
+    }
+    armLockWindow(400);
+  });
+
+  contentObserver.observe(element, { childList: true, subtree: true });
 }
+
 
 function initFocusPatch() {
   if (!HTMLElement.prototype.__saFocusPatched) {
