@@ -14,6 +14,7 @@ All of these options are configurable and can be turned on/off on demand:
 - shows datapoint `schema_id` on the annotation screen (headers and line items)
 - expands formula field definitions by default
 - expands reasoning field options by default
+- prevents sidebar from auto-scrolling to top after async loads (scroll lock)
 - adds `devFeatureEnabled` toggle
 - adds `devDebugEnabled` toggle
 
