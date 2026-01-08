@@ -107,6 +107,12 @@ const observeHtmlBody = (
 function initScrollLock(element /*: Element */) {
   if (!(element instanceof HTMLElement)) return;
 
+  const MIN_SCROLL_POSITION_FOR_LOCK = 50;
+  const SCROLL_TOLERANCE_PX = 5;
+  const USER_SCROLL_DETECTION_MS = 250;
+  const ROUTE_CHANGE_LOCK_MS = 800;
+  const CONTENT_CHANGE_LOCK_MS = 400;
+
   let savedScrollTop = 0;
   let lockUntil = 0;
   let isRestoring = false;
@@ -124,11 +130,9 @@ function initScrollLock(element /*: Element */) {
 
   const markUserScrollActive = () => {
     const now = Date.now();
-    userScrollUntil = now + 250;
+    userScrollUntil = now + USER_SCROLL_DETECTION_MS;
 
     if (userScrollTimer) clearTimeout(userScrollTimer);
-    userScrollTimer = setTimeout(() => {
-    }, 260);
   };
 
   element.addEventListener('wheel', markUserScrollActive, { passive: true });
@@ -151,8 +155,8 @@ function initScrollLock(element /*: Element */) {
         return;
       }
 
-      if (!isRestoring && now < lockUntil && savedScrollTop > 50) {
-        if (Math.abs(cur - savedScrollTop) > 5) {
+      if (!isRestoring && now < lockUntil && savedScrollTop > MIN_SCROLL_POSITION_FOR_LOCK) {
+        if (Math.abs(cur - savedScrollTop) > SCROLL_TOLERANCE_PX) {
           isRestoring = true;
           element.scrollTop = savedScrollTop;
           setTimeout(() => {
@@ -175,8 +179,8 @@ function initScrollLock(element /*: Element */) {
         const now = Date.now();
         const desired = Number(v) || 0;
 
-        if (now > userScrollUntil && now < lockUntil && savedScrollTop > 50) {
-          if (Math.abs(desired - savedScrollTop) > 5) {
+        if (now > userScrollUntil && now < lockUntil && savedScrollTop > MIN_SCROLL_POSITION_FOR_LOCK) {
+          if (Math.abs(desired - savedScrollTop) > SCROLL_TOLERANCE_PX) {
             return desc.set.call(this, savedScrollTop);
           }
         }
@@ -186,7 +190,7 @@ function initScrollLock(element /*: Element */) {
   }
 
   const armLockWindow = (ms) => {
-    if (savedScrollTop <= 50) return; 
+    if (savedScrollTop <= MIN_SCROLL_POSITION_FOR_LOCK) return; 
     lockUntil = Date.now() + ms;
     element.scrollTop = savedScrollTop;
     requestAnimationFrame(() => {
@@ -197,13 +201,31 @@ function initScrollLock(element /*: Element */) {
   const contentObserver = new MutationObserver(() => {
     if (window.location.pathname !== currentPathname) {
       currentPathname = window.location.pathname;
-      armLockWindow(800);
+      armLockWindow(ROUTE_CHANGE_LOCK_MS);
       return;
     }
-    armLockWindow(400);
+    armLockWindow(CONTENT_CHANGE_LOCK_MS);
   });
 
   contentObserver.observe(element, { childList: true, subtree: true });
+
+  let observerDisconnected = false;
+  const cleanupObserver = () => {
+    if (observerDisconnected) return;
+    observerDisconnected = true;
+    contentObserver.disconnect();
+  };
+
+  const monitorElementConnection = () => {
+    if (observerDisconnected) return;
+    if (!element.isConnected) {
+      cleanupObserver();
+      return;
+    }
+    requestAnimationFrame(monitorElementConnection);
+  };
+
+  requestAnimationFrame(monitorElementConnection);
 }
 
 
@@ -212,7 +234,23 @@ function initFocusPatch() {
     const originalFocus = HTMLElement.prototype.focus;
     HTMLElement.prototype.focus = function (...args) {
       try {
-        return originalFocus.call(this, { preventScroll: true });
+        if (args.length === 0) {
+          return originalFocus.call(this, { preventScroll: true });
+        }
+
+        const firstArg = args[0];
+
+        if (firstArg !== null && typeof firstArg === 'object') {
+          const hasPreventScroll = Object.prototype.hasOwnProperty.call(firstArg, 'preventScroll');
+          const mergedOptions = hasPreventScroll
+            ? firstArg
+            : Object.assign({}, firstArg, { preventScroll: true });
+
+          const newArgs = [mergedOptions, ...args.slice(1)];
+          return originalFocus.apply(this, newArgs);
+        }
+
+        return originalFocus.apply(this, args);
       } catch {
         return originalFocus.apply(this, args);
       }
