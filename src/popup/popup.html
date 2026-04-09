@@ -1,67 +1,97 @@
-<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <title>Rossum SA Extension - popup</title>
-  </head>
+<head>
+  <meta charset="utf-8" />
+  <title>Rossum SA Extension</title>
   <link href="popup.css" rel="stylesheet" />
-  <body>
-    <div>
-      <button id="masterDataHub">Master Data Hub</button>
-    </div>
+</head>
+<body>
+  <div class="accent-bar"></div>
 
-    <div class="checkboxes">
-      <h3>Rossum lens</h3>
+  <header class="header">
+    <div class="brand-badge">SA</div>
+    <span class="brand-name">Rossum SA</span>
+  </header>
 
-      <label>
-        <input type="checkbox" id="schemaAnnotationsEnabled" />
-        <span>Show Rossum schema IDs</span>
-      </label>
+  <button id="masterDataHub" class="action-btn">
+    <span>Master Data Hub</span>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M17 7H7M17 7v10"/></svg>
+  </button>
 
-      <label>
-        <input type="checkbox" id="resourceIdsEnabled" />
-        <span>Show resource IDs (queues, annotations)</span>
-      </label>
+  <div class="divider"></div>
 
-      <label>
-        <input type="checkbox" id="expandFormulasEnabled" />
-        <span>Expand formula fields automatically</span>
-      </label>
+  <section>
+    <h3 class="section-title">Rossum</h3>
 
-      <label>
-        <input type="checkbox" id="expandReasoningFieldsEnabled" />
-        <span>Expand reasoning fields automatically</span>
-      </label>
+    <label class="toggle">
+      <input type="checkbox" id="schemaAnnotationsEnabled" />
+      <span class="toggle-track"></span>
+      <span class="toggle-label">Schema IDs</span>
+    </label>
 
-      <label>
-        <input type="checkbox" id="scrollLockEnabled" />
-        <span>Prevent sidebar auto-scroll to top</span>
-      </label>
+    <label class="toggle">
+      <input type="checkbox" id="resourceIdsEnabled" />
+      <span class="toggle-track"></span>
+      <span class="toggle-label">Resource IDs</span>
+    </label>
 
-      <label>
-        <input type="checkbox" id="devFeaturesEnabled" />
-        <span>Rossum dev <em>features</em> flag</span>
-        <span class="help">(<code>devFeaturesEnabled</code>)</span>
-      </label>
+    <label class="toggle">
+      <input type="checkbox" id="expandFormulasEnabled" />
+      <span class="toggle-track"></span>
+      <span class="toggle-label">Auto-expand formulas</span>
+    </label>
 
-      <label>
-        <input type="checkbox" id="devDebugEnabled" />
-        <span>Rossum dev <em>debug</em> flag</span>
-        <span class="help">(<code>devDebugEnabled</code>)</span>
-      </label>
+    <label class="toggle">
+      <input type="checkbox" id="expandReasoningFieldsEnabled" />
+      <span class="toggle-track"></span>
+      <span class="toggle-label">Auto-expand reasoning</span>
+    </label>
 
-      <h3>NetSuite lens</h3>
+    <label class="toggle">
+      <input type="checkbox" id="scrollLockEnabled" />
+      <span class="toggle-track"></span>
+      <span class="toggle-label">Scroll lock</span>
+    </label>
 
-      <label>
-        <input type="checkbox" id="netsuiteFieldNamesEnabled" />
-        <span>Show NetSuite field names</span>
-      </label>
-    </div>
+    <label class="toggle">
+      <input type="checkbox" id="devFeaturesEnabled" />
+      <span class="toggle-track"></span>
+      <span class="toggle-label">
+        Dev features
+        <span class="toggle-hint">devFeaturesEnabled</span>
+      </span>
+    </label>
 
-    <div class="info">
-      <div>0.17.0</div>
-      <div><a href="https://solutionarchitecthandbook.mrtnzlml.com/" target="_blank">The Solution Architect's Handbook</a> 🤓</div>
-    </div>
+    <label class="toggle">
+      <input type="checkbox" id="devDebugEnabled" />
+      <span class="toggle-track"></span>
+      <span class="toggle-label">
+        Dev debug
+        <span class="toggle-hint">devDebugEnabled</span>
+      </span>
+    </label>
+  </section>
 
-    <script src="popup.js"></script>
-  </body>
+  <div class="divider"></div>
+
+  <section>
+    <h3 class="section-title">NetSuite</h3>
+
+    <label class="toggle">
+      <input type="checkbox" id="netsuiteFieldNamesEnabled" />
+      <span class="toggle-track"></span>
+      <span class="toggle-label">Field names</span>
+    </label>
+  </section>
+
+  <footer class="footer">
+    <span class="version">0.17.0</span>
+    <a href="https://solutionarchitecthandbook.mrtnzlml.com/" target="_blank" class="handbook-link">
+      SA Handbook
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M17 7H7M17 7v10"/></svg>
+    </a>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
 </html>
