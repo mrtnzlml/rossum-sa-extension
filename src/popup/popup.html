@@ -11,12 +11,11 @@
   <header class="header">
     <div class="brand-badge">SA</div>
     <span class="brand-name">Rossum SA</span>
+    <button id="masterDataHub" class="action-btn">
+      <span>Master Data Hub</span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M17 7H7M17 7v10"/></svg>
+    </button>
   </header>
-
-  <button id="masterDataHub" class="action-btn">
-    <span>Master Data Hub</span>
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M17 7H7M17 7v10"/></svg>
-  </button>
 
   <section class="card" data-context="rossum">
     <h3 class="section-title">Rossum</h3>
@@ -97,18 +96,33 @@
     </div>
   </section>
 
-  <section class="card" data-context="netsuite">
-    <h3 class="section-title">NetSuite</h3>
+  <div class="card-row">
+    <section class="card" data-context="netsuite">
+      <h3 class="section-title">NetSuite</h3>
 
-    <label class="toggle">
-      <input type="checkbox" id="netsuiteFieldNamesEnabled" />
-      <span class="toggle-track"></span>
-      <span class="toggle-label">
-        Field names
-        <span class="toggle-hint">Show internal IDs on form labels</span>
-      </span>
-    </label>
-  </section>
+      <label class="toggle">
+        <input type="checkbox" id="netsuiteFieldNamesEnabled" />
+        <span class="toggle-track"></span>
+        <span class="toggle-label">
+          Field names
+          <span class="toggle-hint">Show internal IDs on form labels</span>
+        </span>
+      </label>
+    </section>
+
+    <section class="card" data-context="coupa">
+      <h3 class="section-title">Coupa <span class="beta-badge">beta</span></h3>
+
+      <label class="toggle">
+        <input type="checkbox" id="coupaFieldNamesEnabled" />
+        <span class="toggle-track"></span>
+        <span class="toggle-label">
+          Field names
+          <span class="toggle-hint">Show API field names on form labels</span>
+        </span>
+      </label>
+    </section>
+  </div>
 
   <footer class="footer">
     <span class="version">0.18.0</span>

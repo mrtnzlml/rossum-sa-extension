@@ -1,7 +1,7 @@
 > [!IMPORTANT]
 > This is a community project supported by enthusiasts and volunteers. For official support, please get in touch with [Rossum Sales](https://rossum.ai/form/contact/).
 
-Chrome extension adds small enhancements to **Rossum UI** as well as **NetSuite UI** for easier onboarding (created by the SA team).
+Chrome extension adds small enhancements to **Rossum UI**, **NetSuite UI**, and **Coupa UI** for easier onboarding (created by the SA team).
 
 ## Install
 
@@ -28,6 +28,12 @@ All of these options are configurable and can be turned on/off on demand:
 - shows internal field names on form labels
 
 ![NetSuite field names](./assets/netsuite_field_names.png)
+
+## Coupa UI improvements (beta)
+
+- shows API field names on form labels (invoices, purchase orders, and other pages)
+- on invoice pages, extracts exact API names from page metadata (e.g., `currency_id`, `payment_term_id`, `local_invoice_date`)
+- on PO and other pages, extracts field identifiers from DOM attributes
 
 ## Development
 

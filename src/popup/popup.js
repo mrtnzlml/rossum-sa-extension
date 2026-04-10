@@ -12,6 +12,7 @@ const STORAGE_TOGGLES = [
   'expandReasoningFieldsEnabled',
   'scrollLockEnabled',
   'netsuiteFieldNamesEnabled',
+  'coupaFieldNamesEnabled',
 ];
 
 const MESSAGE_TOGGLES = [
@@ -26,8 +27,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   const url = tab.url || '';
   const isRossum = /localhost:3000|\.rossum\.(ai|app)|\.r8\.lol/.test(url);
   const isNetsuite = /\.netsuite\.com\/app/.test(url);
-  if (isRossum) document.querySelector('[data-context="netsuite"]')?.classList.add('dimmed');
-  else if (isNetsuite) document.querySelector('[data-context="rossum"]')?.classList.add('dimmed');
+  const isCoupa = /\.coupacloud\.com/.test(url);
+  if (isRossum) {
+    document.querySelector('[data-context="netsuite"]')?.classList.add('dimmed');
+    document.querySelector('[data-context="coupa"]')?.classList.add('dimmed');
+  } else if (isNetsuite) {
+    document.querySelector('[data-context="rossum"]')?.classList.add('dimmed');
+    document.querySelector('[data-context="coupa"]')?.classList.add('dimmed');
+  } else if (isCoupa) {
+    document.querySelector('[data-context="rossum"]')?.classList.add('dimmed');
+    document.querySelector('[data-context="netsuite"]')?.classList.add('dimmed');
+  }
 
   // Master Data Hub button
   document.getElementById('masterDataHub')?.addEventListener('click', () => {

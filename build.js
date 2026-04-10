@@ -18,6 +18,7 @@ const options = {
   entryPoints: {
     'scripts/rossum': 'src/rossum/index.js',
     'scripts/netsuite': 'src/netsuite/index.js',
+    'scripts/coupa': 'src/coupa/index.js',
     'popup/popup': 'src/popup/popup.js',
   },
   bundle: true,
