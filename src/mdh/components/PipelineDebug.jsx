@@ -9,6 +9,7 @@ const DEBUG_PREVIEW_LIMIT = 5;
 function StageTooltip({ stage, children }) {
   const [show, setShow] = useState(false);
   const rowRef = useRef(null);
+  const tipRef = useRef(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
   function onEnter() {
@@ -17,11 +18,28 @@ function StageTooltip({ stage, children }) {
     setShow(true);
   }
 
+  useEffect(() => {
+    if (!show || !tipRef.current) return;
+    const tip = tipRef.current;
+    const tipRect = tip.getBoundingClientRect();
+    let { top, left } = pos;
+    // If tooltip goes off-screen right, flip to left of the row
+    if (tipRect.right > window.innerWidth - 8) {
+      const rowRect = rowRef.current?.getBoundingClientRect();
+      if (rowRect) left = rowRect.left - tipRect.width - 8;
+    }
+    // If goes off bottom, shift up
+    if (tipRect.bottom > window.innerHeight - 8) {
+      top = Math.max(8, window.innerHeight - tipRect.height - 8);
+    }
+    if (top !== pos.top || left !== pos.left) setPos({ top, left });
+  }, [show, pos.top, pos.left]);
+
   return (
     <div ref={rowRef} onMouseEnter={onEnter} onMouseLeave={() => setShow(false)} style="position:relative">
       {children}
       {show && (
-        <div class="pipeline-debug-tooltip" style={`position:fixed;top:${pos.top}px;left:${pos.left}px`}>
+        <div ref={tipRef} class="pipeline-debug-tooltip" style={`position:fixed;top:${pos.top}px;left:${pos.left}px`}>
           <pre>{JSON.stringify(stage, null, 2)}</pre>
         </div>
       )}
