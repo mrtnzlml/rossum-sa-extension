@@ -1,0 +1,130 @@
+let serviceBase = '';
+let authHeader = '';
+
+export function init(domain, token) {
+  serviceBase = `${domain}/svc/data-storage`;
+  authHeader = `Bearer ${token}`;
+}
+
+async function post(path, body) {
+  const res = await fetch(`${serviceBase}/api/v1${path}`, {
+    method: 'POST',
+    headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) {
+    throw new Error('Session expired. Open a Rossum page and click Data Storage again to reconnect.');
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(data?.message || `API error ${res.status}`);
+  }
+  return data;
+}
+
+async function get(path) {
+  const res = await fetch(`${serviceBase}${path}`, {
+    headers: { Authorization: authHeader },
+  });
+  if (res.status === 401) {
+    throw new Error('Session expired. Open a Rossum page and click Data Storage again to reconnect.');
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(data?.message || `API error ${res.status}`);
+  }
+  return data;
+}
+
+export function listCollections(filter = null, nameOnly = true) {
+  return post('/collections/list', { filter, nameOnly });
+}
+
+export function createCollection(collectionName, options = {}) {
+  return post('/collections/create', { collectionName, options });
+}
+
+export function renameCollection(collectionName, target, dropTarget = false) {
+  return post('/collections/rename', { collectionName, target, dropTarget });
+}
+
+export function dropCollection(collectionName) {
+  return post('/collections/drop', { collectionName });
+}
+
+export function find(collectionName, { query = {}, projection = null, skip = 0, limit = 30, sort = null } = {}) {
+  return post('/data/find', { collectionName, query, projection, skip, limit, sort });
+}
+
+export function insertOne(collectionName, document) {
+  return post('/data/insert_one', { collectionName, document });
+}
+
+export function insertMany(collectionName, documents, ordered = false) {
+  return post('/data/insert_many', { collectionName, documents, ordered });
+}
+
+export function updateOne(collectionName, filter, update) {
+  return post('/data/update_one', { collectionName, filter, update });
+}
+
+export function updateMany(collectionName, filter, update) {
+  return post('/data/update_many', { collectionName, filter, update });
+}
+
+export function deleteOne(collectionName, filter) {
+  return post('/data/delete_one', { collectionName, filter });
+}
+
+export function deleteMany(collectionName, filter) {
+  return post('/data/delete_many', { collectionName, filter });
+}
+
+export function replaceOne(collectionName, filter, replacement) {
+  return post('/data/replace_one', { collectionName, filter, replacement });
+}
+
+export function aggregate(collectionName, pipeline) {
+  return post('/data/aggregate', { collectionName, pipeline });
+}
+
+export function bulkWrite(collectionName, operations) {
+  return post('/data/bulk_write', { collectionName, operations });
+}
+
+export function listIndexes(collectionName, nameOnly = false) {
+  return post('/indexes/list', { collectionName, nameOnly });
+}
+
+export function createIndex(collectionName, indexName, keys, options = {}) {
+  return post('/indexes/create', { collectionName, indexName, keys, options });
+}
+
+export function dropIndex(collectionName, indexName) {
+  return post('/indexes/drop', { collectionName, indexName });
+}
+
+export function listSearchIndexes(collectionName, nameOnly = false) {
+  return post('/search_indexes/list', { collectionName, nameOnly });
+}
+
+export function createSearchIndex(collectionName, { indexName, mappings, analyzer, analyzers, searchAnalyzer, synonyms } = {}) {
+  const body = { collectionName, indexName, mappings };
+  if (analyzer) body.analyzer = analyzer;
+  if (analyzers) body.analyzers = analyzers;
+  if (searchAnalyzer) body.searchAnalyzer = searchAnalyzer;
+  if (synonyms) body.synonyms = synonyms;
+  return post('/search_indexes/create', body);
+}
+
+export function dropSearchIndex(collectionName, indexName) {
+  return post('/search_indexes/drop', { collectionName, indexName });
+}
+
+export function checkOperationStatus(operationId) {
+  return get(`/api/v1/operation_status/${operationId}`);
+}
+
+export function healthz() {
+  return get('/api/healthz');
+}
