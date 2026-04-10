@@ -47,6 +47,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  // Data Storage button
+  document.getElementById('dataStorage')?.addEventListener('click', () => {
+    chrome.tabs.sendMessage(tab.id, 'get-auth-info', (response) => {
+      if (response?.token && response?.domain) {
+        chrome.storage.local.set({ mdhToken: response.token, mdhDomain: response.domain }, () => {
+          chrome.tabs.create({
+            url: chrome.runtime.getURL('mdh/mdh.html'),
+            index: tab.index + 1,
+          });
+        });
+      }
+    });
+  });
+
   // Storage-backed toggles (reload on change)
   const storageValues = await chrome.storage.local.get(STORAGE_TOGGLES);
   for (const key of STORAGE_TOGGLES) {
