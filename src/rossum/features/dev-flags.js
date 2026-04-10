@@ -1,4 +1,10 @@
 const handlers = {
+  'get-auth-info': (sendResponse) => {
+    sendResponse({
+      token: window.localStorage.getItem('secureToken'),
+      domain: window.location.origin,
+    });
+  },
   'get-dev-features-enabled-value': (sendResponse) => {
     sendResponse(window.localStorage.getItem('devFeaturesEnabled') === 'true');
   },
