@@ -22,7 +22,7 @@ const options = {
     'scripts/netsuite': 'src/netsuite/index.js',
     'scripts/coupa': 'src/coupa/index.js',
     'popup/popup': 'src/popup/popup.js',
-    'mdh/mdh': 'src/mdh/index.js',
+    'mdh/mdh': 'src/mdh/index.jsx',
   },
   bundle: true,
   minify: true,
