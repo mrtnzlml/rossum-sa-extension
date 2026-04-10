@@ -18,6 +18,8 @@ All of these options are configurable and can be turned on/off on demand:
 - prevents annotation sidebar from auto-scrolling to top (scroll lock)
 - toggles `devFeaturesEnabled` flag
 - toggles `devDebugEnabled` flag
+- quick link to Master Data Hub management page
+- Dataset Management — browse, query, edit, and delete records in Data Storage collections; manage indexes and Atlas Search indexes (beta)
 
 ![header fields](./assets/header_fields.png)
 
