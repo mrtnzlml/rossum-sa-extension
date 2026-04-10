@@ -59,7 +59,7 @@ export default function PipelineEditor({ editorRef, initialValue, onChange, onVa
   }
 
   return (
-    <div>
+    <div style="display:flex;flex-direction:column;flex:1;min-height:0">
       <div class="pipeline-header">
         <span class="split-pane-label">Aggregate Pipeline</span>
         <div class="pipeline-header-actions">
@@ -74,15 +74,15 @@ export default function PipelineEditor({ editorRef, initialValue, onChange, onVa
           <button class="pipeline-action-btn" onClick={() => { setShowHistory(!showHistory); setShowSaved(false); }}>Query History</button>
           <button class="pipeline-action-btn" onClick={beautify}>Beautify</button>
         </div>
+        {showSaveInput && (
+          <div class="pipeline-save-inline">
+            <input ref={saveInputRef} class="input" placeholder="Query name\u2026" onKeyDown={(e) => { if (e.key === 'Enter') doSave(); if (e.key === 'Escape') setShowSaveInput(false); }} />
+            <button class="btn btn-sm btn-primary" onClick={doSave}>Save</button>
+          </div>
+        )}
+        {showHistory && <HistoryPanel onLoad={loadFromPanel} onDismiss={() => setShowHistory(false)} />}
+        {showSaved && <SavedPanel onLoad={loadFromPanel} onDismiss={() => setShowSaved(false)} />}
       </div>
-      {showSaveInput && (
-        <div class="pipeline-save-inline">
-          <input ref={saveInputRef} class="input" placeholder="Query name\u2026" onKeyDown={(e) => { if (e.key === 'Enter') doSave(); if (e.key === 'Escape') setShowSaveInput(false); }} />
-          <button class="btn btn-sm btn-primary" onClick={doSave}>Save</button>
-        </div>
-      )}
-      {showHistory && <HistoryPanel onLoad={loadFromPanel} onDismiss={() => setShowHistory(false)} />}
-      {showSaved && <SavedPanel onLoad={loadFromPanel} onDismiss={() => setShowSaved(false)} />}
       <JsonEditor
         value={initialValue}
         mode="aggregate"

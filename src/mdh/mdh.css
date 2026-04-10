@@ -245,10 +245,10 @@ body {
   flex-direction: column;
   padding: 10px 12px;
   border-right: 1px solid var(--border);
-  overflow-y: auto;
+  overflow: hidden;
 }
 
-.data-panel-left .json-editor { flex-shrink: 0; }
+.data-panel-left .json-editor { flex: 1; min-height: 0; overflow: auto; }
 
 .placeholder-container {
   padding: 8px 0 0;
@@ -771,7 +771,7 @@ body {
 
 .pipeline-header {
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 6px; gap: 6px;
+  margin-bottom: 6px; gap: 6px; position: relative; flex-shrink: 0;
 }
 
 .pipeline-header-actions {
@@ -807,6 +807,7 @@ body {
 }
 
 .pipeline-save-inline {
+  position: absolute; top: 100%; left: 0;
   display: flex; gap: 6px; align-items: center;
   padding: 8px 12px; background: var(--bg-card);
   border: 1px solid var(--border); border-radius: var(--radius);
@@ -1016,6 +1017,7 @@ body {
 /* ── Query history panel ─────────────────────── */
 
 .query-history-panel {
+  position: absolute; top: 100%; right: 0;
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: var(--radius); box-shadow: var(--shadow), 0 8px 24px rgba(0,0,0,0.12);
   width: 480px; max-height: 500px; z-index: 100;
