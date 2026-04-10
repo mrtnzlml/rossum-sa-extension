@@ -5,6 +5,7 @@ const TABS = [
   { id: 'data', label: 'Data' },
   { id: 'indexes', label: 'Indexes' },
   { id: 'search-indexes', label: 'Search Indexes' },
+  { id: 'stats', label: 'Stats' },
 ];
 
 export default function TabBar() {

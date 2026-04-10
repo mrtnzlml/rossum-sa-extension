@@ -10,6 +10,7 @@ import Modal from './Modal.jsx';
 import DataPanel from './DataPanel.jsx';
 import IndexPanel from './IndexPanel.jsx';
 import SearchIndexPanel from './SearchIndexPanel.jsx';
+import StatsPanel from './StatsPanel.jsx';
 
 export default function App({ connected }) {
   return (
@@ -25,6 +26,7 @@ export default function App({ connected }) {
           <div class="main-content">
             <TabBar />
             {activePanel.value === 'data' && <DataPanel />}
+            {activePanel.value === 'stats' && <StatsPanel />}
             {activePanel.value === 'indexes' && <IndexPanel />}
             {activePanel.value === 'search-indexes' && <SearchIndexPanel />}
           </div>

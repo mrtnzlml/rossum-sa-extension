@@ -18,6 +18,30 @@ import * as api from '../api.js';
 import * as cache from '../cache.js';
 import JSON5 from 'json5';
 
+const MAX_LIMIT = 500;
+
+function enforcePipelineLimit(text, defaultLimit) {
+  let pipeline;
+  try {
+    pipeline = JSON5.parse(text);
+    if (!Array.isArray(pipeline)) return null;
+  } catch { return null; }
+
+  let changed = false;
+  const hasLimit = pipeline.some(s => s != null && typeof s === 'object' && '$limit' in s);
+  if (!hasLimit) {
+    pipeline.push({ $limit: defaultLimit });
+    changed = true;
+  }
+  for (const stage of pipeline) {
+    if (stage != null && typeof stage === 'object' && '$limit' in stage && stage.$limit > MAX_LIMIT) {
+      stage.$limit = MAX_LIMIT;
+      changed = true;
+    }
+  }
+  return changed ? JSON.stringify(pipeline, null, 2) : null;
+}
+
 export default function DataPanel() {
   const editorRef = useRef(null);
   const pipeline = usePipeline();
@@ -51,7 +75,14 @@ export default function DataPanel() {
 
   async function runQuery() {
     if (!collection || !editorRef.current) return;
-    const rawText = editorRef.current.getValue();
+    let rawText = editorRef.current.getValue();
+    const corrected = enforcePipelineLimit(rawText, limit.value);
+    if (corrected !== null) {
+      pipeline.suppressSync.value = true;
+      editorRef.current.setValue(corrected);
+      setTimeout(() => { pipeline.suppressSync.value = false; }, 600);
+      rawText = corrected;
+    }
     const result = await query.runQuery(collection, rawText, pipeline.substitutePlaceholders);
     if (result) {
       addToHistory(collection, rawText, { ...pipeline.placeholderValues.value });
@@ -167,7 +198,8 @@ export default function DataPanel() {
     }
 
     downloadCancelRef.current = false;
-    setDownloadState({ count: 0 });
+    const total = pagination.totalCount.value;
+    setDownloadState({ count: 0, total });
 
     const BATCH = 1000;
     const allDocs = [];
@@ -180,7 +212,7 @@ export default function DataPanel() {
         if (downloadCancelRef.current) break;
         const batch = res.result || [];
         allDocs.push(...batch);
-        setDownloadState({ count: allDocs.length });
+        setDownloadState({ count: allDocs.length, total });
         if (batch.length < BATCH) break;
         s += BATCH;
       }

@@ -1,6 +1,6 @@
 import { useRef } from 'preact/hooks';
 import { signal } from '@preact/signals';
-import { records as recordsSignal, loading, error, limit } from '../store.js';
+import { records as recordsSignal, loading, error } from '../store.js';
 import * as api from '../api.js';
 import * as cache from '../cache.js';
 import JSON5 from 'json5';

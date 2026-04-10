@@ -6,12 +6,25 @@ export function init(domain, token) {
   authHeader = `Bearer ${token}`;
 }
 
+const REQUEST_TIMEOUT = 30_000;
+
 async function post(path, body) {
-  const res = await fetch(`${serviceBase}/api/v1${path}`, {
-    method: 'POST',
-    headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+  let res;
+  try {
+    res = await fetch(`${serviceBase}/api/v1${path}`, {
+      method: 'POST',
+      headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError') throw new Error('Request timed out after 30s');
+    throw err;
+  }
+  clearTimeout(timer);
   if (res.status === 401) {
     throw new Error('Session expired. Open a Rossum page and click Data Storage again to reconnect.');
   }
@@ -23,9 +36,20 @@ async function post(path, body) {
 }
 
 async function get(path) {
-  const res = await fetch(`${serviceBase}${path}`, {
-    headers: { Authorization: authHeader },
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+  let res;
+  try {
+    res = await fetch(`${serviceBase}${path}`, {
+      headers: { Authorization: authHeader },
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError') throw new Error('Request timed out after 30s');
+    throw err;
+  }
+  clearTimeout(timer);
   if (res.status === 401) {
     throw new Error('Session expired. Open a Rossum page and click Data Storage again to reconnect.');
   }

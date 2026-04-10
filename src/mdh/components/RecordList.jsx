@@ -71,8 +71,16 @@ export default function RecordList({ records, pipelineText, filterState, sortSta
           {downloadState ? (
             <span class="download-progress">
               <span class="download-progress-text">
-                {downloadState.cancelled ? 'Cancelled' : downloadState.done ? `\u2713 ${downloadState.count} records` : `Downloading\u2026 ${downloadState.count} records`}
+                {downloadState.cancelled ? 'Cancelled' : downloadState.done ? `\u2713 ${downloadState.count} records` : `Downloading\u2026 ${downloadState.count}${downloadState.total ? ' / ' + downloadState.total : ''} records`}
               </span>
+              {!downloadState.cancelled && !downloadState.done && (
+                <span class="download-bar">
+                  {downloadState.total > 0
+                    ? <span class="download-bar-fill" style={`width:${Math.min(100, Math.round((downloadState.count / downloadState.total) * 100))}%`}></span>
+                    : <span class="download-bar-fill download-bar-indeterminate"></span>
+                  }
+                </span>
+              )}
               {!downloadState.cancelled && !downloadState.done && (
                 <button class="download-cancel-btn" title="Cancel download" onClick={onCancelDownload}>{'\u2715'}</button>
               )}
