@@ -5,7 +5,7 @@ const isWatch = process.argv.includes('--watch');
 
 rmSync('dist', { recursive: true, force: true });
 
-for (const dir of ['dist/popup', 'dist/icons']) {
+for (const dir of ['dist/popup', 'dist/icons', 'dist/mdh']) {
   mkdirSync(dir, { recursive: true });
 }
 
@@ -13,6 +13,8 @@ cpSync('manifest.json', 'dist/manifest.json');
 cpSync('icons', 'dist/icons', { recursive: true });
 cpSync('src/popup/popup.html', 'dist/popup/popup.html');
 cpSync('src/popup/popup.css', 'dist/popup/popup.css');
+cpSync('src/mdh/mdh.html', 'dist/mdh/mdh.html');
+cpSync('src/mdh/mdh.css', 'dist/mdh/mdh.css');
 
 const options = {
   entryPoints: {
@@ -20,6 +22,7 @@ const options = {
     'scripts/netsuite': 'src/netsuite/index.js',
     'scripts/coupa': 'src/coupa/index.js',
     'popup/popup': 'src/popup/popup.js',
+    'mdh/mdh': 'src/mdh/index.js',
   },
   bundle: true,
   outdir: 'dist',

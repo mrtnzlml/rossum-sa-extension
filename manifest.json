@@ -9,6 +9,12 @@
     "128": "icons/128-blue-crunch.png"
   },
   "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "https://*.rossum.ai/*",
+    "https://*.rossum.app/*",
+    "https://*.r8.lol/*"
+  ],
   "content_scripts": [
     {
       "js": ["scripts/rossum.js"],
