@@ -197,29 +197,48 @@ export default function DataPanel() {
     }
 
     downloadCancelRef.current = false;
-    const total = pagination.totalCount.value;
+    let total = pagination.totalCount.value;
     setDownloadState({ count: 0, total });
 
-    const BATCH = 1000;
-    const allDocs = [];
-    let s = 0;
+    const BATCH = 5000;
+    const CONCURRENCY = 10;
     try {
       error.value = null;
-      while (true) {
+
+      if (total === null) {
+        const countRes = await api.aggregate(collection, [{ $count: 'total' }]);
+        total = countRes.result?.[0]?.total ?? 0;
+        setDownloadState({ count: 0, total });
+      }
+
+      if (total === 0 || downloadCancelRef.current) {
+        setDownloadState(null);
+        return;
+      }
+
+      const offsets = [];
+      for (let s = 0; s < total; s += BATCH) offsets.push(s);
+
+      const results = new Array(offsets.length);
+      let fetched = 0;
+
+      for (let i = 0; i < offsets.length; i += CONCURRENCY) {
         if (downloadCancelRef.current) break;
-        const res = await api.aggregate(collection, [{ $match: {} }, { $skip: s }, { $limit: BATCH }]);
-        if (downloadCancelRef.current) break;
-        const batch = res.result || [];
-        allDocs.push(...batch);
-        setDownloadState({ count: allDocs.length, total });
-        if (batch.length < BATCH) break;
-        s += BATCH;
+        const chunk = offsets.slice(i, i + CONCURRENCY);
+        await Promise.all(chunk.map((s, j) =>
+          api.aggregate(collection, [{ $match: {} }, { $skip: s }, { $limit: BATCH }]).then((res) => {
+            results[i + j] = res.result || [];
+            fetched += (res.result || []).length;
+            setDownloadState({ count: fetched, total });
+          })
+        ));
       }
 
       if (downloadCancelRef.current) {
-        setDownloadState({ count: allDocs.length, cancelled: true });
+        setDownloadState({ count: fetched, cancelled: true });
         setTimeout(() => setDownloadState(null), 1500);
       } else {
+        const allDocs = results.flat();
         const json = JSON.stringify(allDocs, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);

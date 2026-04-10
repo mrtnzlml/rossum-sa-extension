@@ -13,52 +13,77 @@ Uses **esbuild** to bundle ES modules from `src/` into `dist/`. No other build t
 - `npm run build` — clean build into `dist/`
 - `npm run dev` — watch mode (JS only; re-run build for CSS/HTML changes)
 - `dist/` is the loadable Chrome extension (gitignored)
-- `build.js` at project root orchestrates bundling + static asset copying
+- `build.js` orchestrates bundling + static asset copying (manifest.json, icons/, popup HTML/CSS, mdh HTML/CSS)
+
+esbuild config: `format: 'iife'`, `minify: true`, `jsxFactory: 'h'`, `jsxFragment: 'Fragment'` (Preact JSX).
 
 ## Architecture
 
-Five esbuild entry points produce the extension:
+Five esbuild entry points:
 
 1. **`src/rossum/index.js`** → content script for Rossum pages
 2. **`src/netsuite/index.js`** → content script for NetSuite pages
 3. **`src/coupa/index.js`** → content script for Coupa pages
 4. **`src/popup/popup.js`** → extension popup UI
-5. **`src/mdh/index.js`** → Dataset Management standalone page (opened via `chrome.tabs.create`)
+5. **`src/mdh/index.jsx`** → Dataset Management standalone page (opened via `chrome.tabs.create`)
+
+No background/service worker — purely content scripts + popup.
 
 ### Rossum content script
 
-- `src/rossum/index.js` — reads chrome.storage.local settings, builds a handler array from enabled features, creates a single MutationObserver that walks added subtrees
-- `src/rossum/api.js` — `fetchRossumApi()` with token auth and error-aware caching
-- `src/rossum/features/` — one module per feature, each exports a `handleNode(node)` function called by the central MutationObserver for every added DOM element:
-  - `schema-ids.js` — schema ID overlays on annotation fields
-  - `resource-ids.js` — resource ID overlays with click-to-copy (workspaces, queues, annotations, extensions, labels, rules, users)
-  - `expand-formulas.js` — auto-click "Show source code" buttons
-  - `expand-reasoning.js` — auto-click "Show options" on reasoning fields
-  - `scroll-lock.js` — prevents sidebar auto-scroll via `scrollTop` property descriptor patching
-  - `dev-flags.js` — message handlers for devFeaturesEnabled/devDebugEnabled toggles
+Reads chrome.storage.local settings, builds a handler array from enabled features, creates a single MutationObserver that walks added subtrees. Feature modules in `src/rossum/features/` each export:
+- `init()` (optional) — inject CSS, set up listeners (called once)
+- `handleNode(node)` — called for every added DOM element; must be fast (no-op when irrelevant)
 
-### Coupa content script
-
-- `src/coupa/index.js` — uses two strategies: JSON metadata extraction from `#initial_full_react_data` (React pages like invoices) and DOM attribute extraction (Rails pages like POs). Maintains an `IGNORE_S_CLASSES` set to filter out UI framework classes.
+To add a new feature: create a module in `features/`, add its storage key to `SETTINGS_KEYS` in `index.js`, wire up `init()`/`handleNode()` in the conditional block, and add a toggle checkbox in `popup.html`/`popup.js`.
 
 ### Dataset Management (MDH)
 
-A standalone page (`src/mdh/`) with its own MVC-like structure:
-- `api.js` — REST client wrapping Rossum's Data Storage API (collections, CRUD, indexes, search indexes)
-- `state.js` — centralized state with event emitter pattern (`state.set()`, `state.on()`)
-- `ui/` — UI modules: `sidebar.js`, `records.js`, `indexes.js`, `search-indexes.js`, `record-editor.js`, `json-editor.js` (CodeMirror), `modal.js`, `delete-many.js`
-- Auth flows through the popup: captures token/domain from the active Rossum tab via `chrome.tabs.sendMessage('get-auth-info')`, stores in chrome.storage.local, then opens `mdh.html`
+A Preact SPA (`src/mdh/`) for managing Rossum Data Storage collections:
+
+- **`store.js`** — Preact signals for global state: `domain`, `token`, `collections`, `selectedCollection`, `records`, `skip`, `limit`, `activePanel`, `loading`, `error`, `modalContent`
+- **`api.js`** — REST client wrapping the Data Storage API (30+ methods: CRUD, aggregation, indexes, search indexes, bulk operations). 30-second timeout via AbortController. 401 → "Session expired".
+- **`cache.js`** — LRU cache with 60-second TTL, max 200 entries. Field-level granularity (keyed by collection + field). Supports pinning to exempt active collection from TTL. `invalidateData()` clears query results but preserves index caches.
+- **`prefetch.js`** — background preloading: prioritizes active collection/panel, then batches other collections (5 per batch, 200ms delay). Uses AbortController to cancel on selection change.
+- **`hooks/`** — `usePipeline` (sort/filter state → MongoDB aggregation pipeline, placeholder substitution), `useQuery` (executes aggregations with stale-result cancellation via queryId counter), `usePagination` (skip/limit page tracking with cached total count)
+- **`components/`** — 25 JSX components. Modal system: `openModal(title, renderFn)`, `confirmModal(title, msg, onConfirm)`, `promptModal(title, opts, onSubmit)`.
+
+Auth flow: popup sends `'get-auth-info'` message to Rossum tab → content script returns `{token, domain}` from localStorage → popup stores in chrome.storage.local → opens mdh.html → MDH reads from storage on boot.
+
+### Coupa content script
+
+Two strategies: JSON metadata extraction from `#initial_full_react_data` script tag (React pages like invoices) and DOM attribute extraction with `IGNORE_S_CLASSES` filtering (Rails pages like POs).
 
 ### Popup
 
-- `src/popup/popup.js` — detects current site (Rossum/NetSuite/Coupa) and dims irrelevant sections; manages two toggle types: storage-backed (persist in chrome.storage.local, reload tab on change) and message-backed (devFeatures/devDebug, communicated via chrome.tabs.sendMessage)
+Detects current site (Rossum/NetSuite/Coupa) and dims irrelevant sections. Two toggle types: storage-backed (persist in chrome.storage.local, reload tab on change) and message-backed (devFeatures/devDebug, communicated via chrome.tabs.sendMessage without reload).
+
+## Chrome Storage Keys
+
+- Feature toggles: `schemaAnnotationsEnabled`, `expandFormulasEnabled`, `expandReasoningFieldsEnabled`, `scrollLockEnabled`, `resourceIdsEnabled`, `netsuiteFieldNamesEnabled`, `coupaFieldNamesEnabled`
+- MDH auth: `mdhToken`, `mdhDomain`
+- MDH state: `mdhPipelineWidth`
+
+## CSS Architecture
+
+- **MDH** (`mdh.css`): CSS custom properties for all colors, surfaces, typography. Dark mode via `@media (prefers-color-scheme: dark)` overriding `:root` variables. Semantic color variables: `--accent`, `--success`, `--warning`, `--danger` plus `-hover`, `-bg`, `-fg`, `-border` variants.
+- **Popup** (`popup.css`): Separate variable system, also supports dark mode.
+- **Content scripts**: Inject styles dynamically via `init()` functions (styles only in DOM when feature enabled). All classes prefixed `rossum-sa-extension-*`.
+- **CodeMirror**: Custom highlight themes (light + dark) in `JsonEditor.jsx` matching the JSON tree renderer colors via `@lezer/highlight` tags.
+
+## Dependencies
+
+- **preact** + **@preact/signals** — UI rendering and reactive state for MDH
+- **codemirror** + **@codemirror/lang-json** + **@codemirror/theme-one-dark** — JSON/pipeline editor with MongoDB operator autocompletion
+- **json5** — lenient JSON parsing (allows trailing commas, unquoted keys in pipeline editor)
+- **esbuild** (dev) — bundler
 
 ## Key Patterns
 
-- All features are gated behind chrome.storage.local toggles controlled via the popup
-- The Rossum entry point builds a handlers array from enabled settings — disabled features add zero overhead
-- Feature modules that need CSS inject styles dynamically via `init()` — styles only exist in the DOM when the feature is enabled
+- All features gated behind chrome.storage.local toggles controlled via popup
+- Rossum entry point builds handlers array from enabled settings — disabled features add zero overhead
 - NetSuite and Coupa content scripts are self-contained single files (no MutationObserver pattern)
+- No test infrastructure exists
 
 ## Release Process
 
