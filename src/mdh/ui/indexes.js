@@ -1,30 +1,44 @@
 import * as api from '../api.js';
 import * as state from '../state.js';
-import { confirmModal } from './modal.js';
-import { escapeHtml, showAsyncStatus } from './utils.js';
+import { showAsyncStatus } from './utils.js';
 import { renderIndexCard } from './index-card.js';
+import { createJsonEditor } from './json-editor.js';
+import { openModal, closeModal } from './modal.js';
+
+function defaultTemplate() {
+  return JSON.stringify({
+    indexName: 'my_index',
+    keys: { field: 1 },
+    options: {},
+  }, null, 2);
+}
 
 export function initIndexes() {
   const panelEl = document.getElementById('panel-indexes');
+  panelEl.innerHTML = '';
 
-  panelEl.innerHTML = `
-    <div class="toolbar">
-      <span style="flex:1;font-weight:500">Indexes</span>
-      <button id="refreshIndexes" class="icon-btn" title="Refresh">&#x21bb;</button>
-    </div>
-    <div id="indexList" class="index-list"></div>
-    <div id="indexOpStatus" class="hidden" style="padding:8px 16px"></div>
-    <div class="index-create-form">
-      <span class="toolbar-label">Name:</span>
-      <input id="indexName" class="input" style="width:140px" placeholder="my_index" />
-      <span class="toolbar-label">Keys:</span>
-      <input id="indexKeys" class="input" style="flex:1" value='{"field": 1}' />
-      <button id="createIndexBtn" class="btn btn-primary btn-sm">Create</button>
-    </div>
+  const toolbar = document.createElement('div');
+  toolbar.className = 'toolbar';
+  toolbar.innerHTML = `
+    <span style="flex:1;font-weight:500">Indexes</span>
+    <button id="createIndexOpenBtn" class="btn btn-success btn-sm">+ Create</button>
+    <button id="refreshIndexes" class="icon-btn" title="Refresh">&#x21bb;</button>
   `;
+  panelEl.appendChild(toolbar);
 
-  panelEl.querySelector('#refreshIndexes').addEventListener('click', loadIndexes);
-  panelEl.querySelector('#createIndexBtn').addEventListener('click', doCreateIndex);
+  const listEl = document.createElement('div');
+  listEl.id = 'indexList';
+  listEl.className = 'index-list';
+  panelEl.appendChild(listEl);
+
+  const statusEl = document.createElement('div');
+  statusEl.id = 'indexOpStatus';
+  statusEl.className = 'hidden';
+  statusEl.style.padding = '8px 16px';
+  panelEl.appendChild(statusEl);
+
+  toolbar.querySelector('#refreshIndexes').addEventListener('click', loadIndexes);
+  toolbar.querySelector('#createIndexOpenBtn').addEventListener('click', openCreateModal);
 
   state.on('activePanelChanged', (panel) => {
     if (panel === 'indexes') loadIndexes();
@@ -33,6 +47,69 @@ export function initIndexes() {
   state.on('selectedCollectionChanged', () => {
     if (state.get('activePanel') === 'indexes') loadIndexes();
   });
+}
+
+function openCreateModal() {
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+
+  const hint = document.createElement('div');
+  hint.className = 'modal-field-label';
+  hint.textContent = 'collectionName is set automatically from the selected collection';
+  body.appendChild(hint);
+
+  const editor = createJsonEditor({ value: defaultTemplate(), minHeight: '250px' });
+  body.appendChild(editor.el);
+
+  const errorHint = document.createElement('div');
+  errorHint.className = 'input-hint';
+  body.appendChild(errorHint);
+
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-secondary';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', closeModal);
+
+  const createBtn = document.createElement('button');
+  createBtn.className = 'btn btn-primary';
+  createBtn.textContent = 'Create Index';
+  createBtn.addEventListener('click', async () => {
+    if (!editor.isValid()) {
+      errorHint.textContent = 'Invalid JSON';
+      return;
+    }
+    let parsed;
+    try { parsed = editor.getParsed(); } catch { return; }
+
+    const { indexName, keys, options } = parsed;
+    if (!indexName || !keys) {
+      errorHint.textContent = 'indexName and keys are required';
+      return;
+    }
+    errorHint.textContent = '';
+
+    try {
+      state.set({ loading: true, error: null });
+      const res = await api.createIndex(state.get('selectedCollection'), indexName, keys, options || {});
+      state.set({ loading: false });
+      closeModal();
+      showAsyncStatus(document.getElementById('indexOpStatus'), res.message);
+      await loadIndexes();
+    } catch (err) {
+      state.set({ loading: false });
+      errorHint.textContent = err.message;
+    }
+  });
+
+  actions.appendChild(cancelBtn);
+  actions.appendChild(createBtn);
+  body.appendChild(actions);
+
+  openModal('Create Index', body);
+  requestAnimationFrame(() => editor.refresh());
 }
 
 async function loadIndexes() {
@@ -76,36 +153,6 @@ function renderIndexes(indexes) {
       canDrop: !isDefault,
       onDrop: () => doDropIndex(name),
     }));
-  }
-}
-
-async function doCreateIndex() {
-  const nameInput = document.getElementById('indexName');
-  const keysInput = document.getElementById('indexKeys');
-  const statusEl = document.getElementById('indexOpStatus');
-  const indexName = nameInput.value.trim();
-
-  if (!indexName) { nameInput.classList.add('input-error'); return; }
-  nameInput.classList.remove('input-error');
-
-  let keys;
-  try {
-    keys = JSON.parse(keysInput.value);
-    keysInput.classList.remove('input-error');
-  } catch {
-    keysInput.classList.add('input-error');
-    return;
-  }
-
-  try {
-    state.set({ loading: true, error: null });
-    const res = await api.createIndex(state.get('selectedCollection'), indexName, keys);
-    state.set({ loading: false });
-    nameInput.value = '';
-    showAsyncStatus(statusEl, res.message);
-    await loadIndexes();
-  } catch (err) {
-    state.set({ error: { message: err.message }, loading: false });
   }
 }
 

@@ -1,9 +1,8 @@
 import * as api from '../api.js';
 import * as state from '../state.js';
+import { openRecordEditor, openDataOperations } from './record-editor.js';
 import { confirmModal } from './modal.js';
-import { openRecordEditor } from './record-editor.js';
-import { openUpdateMany } from './update-many.js';
-import { openDeleteMany } from './delete-many.js';
+
 import { createJsonEditor, extractFieldNames } from './json-editor.js';
 import JSON5 from 'json5';
 
@@ -13,6 +12,7 @@ let filterState = {};   // { "field.path": value }
 let knownFields = [];
 let expandedSet = new Set([0]); // indices of expanded records; default: first
 let expandAll = false;
+let lastQueryMs = 0;
 let suppressPipelineSync = false; // prevent loop when updating editor from UI
 let placeholderValues = {};       // { "vendor_name": "Acme" }
 
@@ -26,6 +26,8 @@ export function initDataPanel() {
   state.on('recordsChanged', onRecordsChanged);
 }
 
+let totalCount = null;
+
 function onCollectionChange(collection) {
   if (collection) {
     state.set({ skip: 0 });
@@ -33,8 +35,17 @@ function onCollectionChange(collection) {
     filterState = {};
     expandedSet = new Set([0]);
     expandAll = false;
+    totalCount = null;
+    fetchTotalCount(collection);
     syncPipelineAndRun();
   }
+}
+
+async function fetchTotalCount(collection) {
+  try {
+    const res = await api.aggregate(collection, [{ $count: 'total' }]);
+    totalCount = res.result?.[0]?.total ?? 0;
+  } catch { /* ignore */ }
 }
 
 function onRecordsChanged(records) {
@@ -112,15 +123,11 @@ function extractPlaceholders(text) {
 
 function substitutePlaceholders(text) {
   return text.replace(PLACEHOLDER_RE, (match, name) => {
-    if (name in placeholderValues && placeholderValues[name] !== '') {
-      const val = placeholderValues[name];
-      // If it looks like a number or boolean, don't quote it
-      if (val === 'true' || val === 'false' || val === 'null' || (!isNaN(Number(val)) && val !== '')) {
-        return val;
-      }
-      return val;
-    }
-    return match;
+    if (!(name in placeholderValues)) return match;
+    const val = placeholderValues[name];
+    if (val === 'true' || val === 'false' || val === 'null') return val;
+    if (val !== '' && !isNaN(Number(val))) return val;
+    return val;
   });
 }
 
@@ -159,8 +166,8 @@ function renderPlaceholderInputs() {
 
     const input = document.createElement('input');
     input.className = 'input placeholder-input';
-    input.placeholder = name;
-    input.value = placeholderValues[name] || '';
+    if (!(name in placeholderValues)) placeholderValues[name] = '';
+    input.value = placeholderValues[name];
 
     let debounce = null;
     input.addEventListener('input', () => {
@@ -193,7 +200,7 @@ async function runQuery() {
   const resolvedText = substitutePlaceholders(rawText);
 
   // Check if there are unresolved placeholders
-  if (PLACEHOLDER_RE.test(resolvedText)) return;
+  if (/\{\w+\}/.test(resolvedText)) return;
 
   let pipeline;
   try {
@@ -208,15 +215,8 @@ async function runQuery() {
     const start = performance.now();
     const res = await api.aggregate(collection, pipeline);
     const elapsed = Math.round(performance.now() - start);
+    lastQueryMs = elapsed;
     state.set({ records: res.result || [], loading: false });
-    const countEl = document.getElementById('recordCount');
-    if (countEl) {
-      const count = (res.result || []).length;
-      const skip = state.get('skip');
-      countEl.textContent = count > 0
-        ? `Showing ${skip + 1}\u2013${skip + count} \u00b7 ${elapsed}ms`
-        : `No records \u00b7 ${elapsed}ms`;
-    }
   } catch (err) {
     state.set({ error: { message: err.message }, loading: false });
   }
@@ -225,23 +225,28 @@ async function runQuery() {
 // ── Download collection ─────────────────────────
 
 let downloadCancelled = false;
+const DOWNLOAD_BATCH = 1000;
 
 async function downloadCollection() {
   const collection = state.get('selectedCollection');
   if (!collection) return;
 
   const btn = document.getElementById('recordDownloadBtn');
-  const originalText = btn.textContent;
+  btn.classList.add('hidden');
   downloadCancelled = false;
 
-  // Switch button to cancel mode
-  btn.textContent = 'Cancel';
-  btn.className = btn.className.replace('btn-sm', 'btn-sm btn-danger');
-  const onCancel = () => { downloadCancelled = true; };
-  btn.removeEventListener('click', downloadCollection);
-  btn.addEventListener('click', onCancel);
+  // Show progress bar next to the button
+  const progress = document.createElement('span');
+  progress.className = 'download-progress';
+  progress.innerHTML = `
+    <span class="download-progress-text">Downloading\u2026 0 records</span>
+    <button class="download-cancel-btn" title="Cancel download">\u2715</button>
+  `;
+  btn.parentElement.insertBefore(progress, btn.nextSibling);
+  progress.querySelector('.download-cancel-btn').addEventListener('click', () => {
+    downloadCancelled = true;
+  });
 
-  const BATCH = 500;
   const allDocs = [];
   let skip = 0;
 
@@ -249,51 +254,45 @@ async function downloadCollection() {
     state.set({ error: null });
 
     while (true) {
-      if (downloadCancelled) {
-        btn.textContent = 'Cancelled';
-        setTimeout(resetBtn, 1500);
-        return;
-      }
+      if (downloadCancelled) break;
       const res = await api.aggregate(collection, [
         { $match: {} },
         { $skip: skip },
-        { $limit: BATCH },
+        { $limit: DOWNLOAD_BATCH },
       ]);
-      if (downloadCancelled) {
-        btn.textContent = 'Cancelled';
-        setTimeout(resetBtn, 1500);
-        return;
-      }
+      if (downloadCancelled) break;
       const batch = res.result || [];
       allDocs.push(...batch);
-      btn.textContent = `Cancel (${allDocs.length})`;
-      if (batch.length < BATCH) break;
-      skip += BATCH;
+      progress.querySelector('.download-progress-text').textContent =
+        `Downloading\u2026 ${allDocs.length} records`;
+      if (batch.length < DOWNLOAD_BATCH) break;
+      skip += DOWNLOAD_BATCH;
     }
 
-    const json = JSON.stringify(allDocs, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${collection}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    if (downloadCancelled) {
+      progress.querySelector('.download-progress-text').textContent = 'Cancelled';
+      setTimeout(() => { progress.remove(); btn.classList.remove('hidden'); }, 1500);
+    } else {
+      const json = JSON.stringify(allDocs, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${collection}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
 
-    btn.textContent = `\u2713 ${allDocs.length} records`;
-    setTimeout(resetBtn, 2000);
+      progress.querySelector('.download-progress-text').textContent =
+        `\u2713 ${allDocs.length} records`;
+      progress.querySelector('.download-cancel-btn').remove();
+      setTimeout(() => { progress.remove(); btn.classList.remove('hidden'); }, 2000);
+    }
   } catch (err) {
     if (!downloadCancelled) {
       state.set({ error: { message: `Download failed: ${err.message}` } });
     }
-    resetBtn();
-  }
-
-  function resetBtn() {
-    btn.textContent = originalText;
-    btn.className = btn.className.replace(' btn-danger', '');
-    btn.removeEventListener('click', onCancel);
-    btn.addEventListener('click', downloadCollection);
+    progress.remove();
+    btn.classList.remove('hidden');
   }
 }
 
@@ -388,58 +387,16 @@ function render() {
   downloadBtn.id = 'recordDownloadBtn';
   downloadBtn.className = 'btn btn-sm';
   downloadBtn.title = 'Download entire collection as JSON';
-  downloadBtn.textContent = 'Download';
+  downloadBtn.textContent = 'Download all';
   dataGroup.appendChild(downloadBtn);
 
-  const insertBtn = document.createElement('button');
-  insertBtn.id = 'recordInsertBtn';
-  insertBtn.className = 'btn btn-success btn-sm';
-  insertBtn.textContent = '+ Insert';
-  dataGroup.appendChild(insertBtn);
+  const onSuccessCb = () => runQuery();
+  dataGroup.appendChild(buildSplitButton('Insert', 'btn-success', {
+    main: () => openDataOperations('insert', onSuccessCb, currentFields),
+    file: () => openDataOperations('insert-file', onSuccessCb, currentFields),
+  }));
 
-  // Overflow menu
-  const moreWrap = document.createElement('div');
-  moreWrap.className = 'toolbar-more-wrap';
-
-  const moreBtn = document.createElement('button');
-  moreBtn.className = 'btn btn-sm toolbar-more-btn';
-  moreBtn.title = 'More actions';
-  moreBtn.innerHTML = '\u22EF';
-
-  const moreMenu = document.createElement('div');
-  moreMenu.className = 'toolbar-more-menu hidden';
-
-  for (const [id, cls, text] of [
-    ['recordImportBtn', '', 'Insert from JSON file'],
-    ['recordUpdateManyBtn', '', 'Update Many'],
-    ['recordDeleteManyBtn', 'toolbar-menu-danger', 'Delete Many'],
-  ]) {
-    const item = document.createElement('button');
-    item.id = id;
-    item.className = 'toolbar-menu-item ' + cls;
-    item.textContent = text;
-    item.addEventListener('click', () => moreMenu.classList.add('hidden'));
-    moreMenu.appendChild(item);
-  }
-
-  moreBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    moreMenu.classList.toggle('hidden');
-  });
-  document.addEventListener('click', () => moreMenu.classList.add('hidden'));
-
-  moreWrap.appendChild(moreBtn);
-  moreWrap.appendChild(moreMenu);
-  dataGroup.appendChild(moreWrap);
   toolbar.appendChild(dataGroup);
-
-  const importFile = document.createElement('input');
-  importFile.id = 'recordImportFile';
-  importFile.type = 'file';
-  importFile.accept = '.json';
-  importFile.style.display = 'none';
-  toolbar.appendChild(importFile);
-
   right.appendChild(toolbar);
 
   // Record list
@@ -476,47 +433,7 @@ function render() {
     syncPipelineAndRun();
   });
   right.querySelector('#recordExpandAllBtn').addEventListener('click', toggleExpandAll);
-  right.querySelector('#recordInsertBtn').addEventListener('click', () => {
-    openRecordEditor('insert', null, () => runQuery(), currentFields);
-  });
-
-  const importFileInput = right.querySelector('#recordImportFile');
-  right.querySelector('#recordImportBtn').addEventListener('click', () => {
-    importFileInput.value = '';
-    importFileInput.click();
-  });
-  importFileInput.addEventListener('change', async () => {
-    const file = importFileInput.files[0];
-    if (!file) return;
-    try {
-      const text = await file.text();
-      let parsed = JSON.parse(text);
-      if (!Array.isArray(parsed)) parsed = [parsed];
-      if (parsed.length === 0) {
-        state.set({ error: { message: 'File contains no documents' } });
-        return;
-      }
-      state.set({ loading: true, error: null });
-      if (parsed.length === 1) {
-        await api.insertOne(state.get('selectedCollection'), parsed[0]);
-      } else {
-        await api.insertMany(state.get('selectedCollection'), parsed);
-      }
-      state.set({ loading: false });
-      runQuery();
-    } catch (err) {
-      state.set({ error: { message: `Import failed: ${err.message}` }, loading: false });
-    }
-  });
-
   right.querySelector('#recordDownloadBtn').addEventListener('click', downloadCollection);
-
-  right.querySelector('#recordUpdateManyBtn').addEventListener('click', () => {
-    openUpdateMany(() => runQuery(), currentFields);
-  });
-  right.querySelector('#recordDeleteManyBtn').addEventListener('click', () => {
-    openDeleteMany(() => runQuery(), currentFields);
-  });
   right.querySelector('#recordPrev').addEventListener('click', () => {
     const skip = Math.max(0, state.get('skip') - state.get('limit'));
     state.set({ skip });
@@ -528,7 +445,53 @@ function render() {
   });
 }
 
+function buildSplitButton(label, extraCls, { main, file }) {
+  const wrap = document.createElement('div');
+  wrap.className = 'split-btn';
+
+  const mainBtn = document.createElement('button');
+  mainBtn.className = `btn btn-sm ${extraCls}`.trim();
+  mainBtn.textContent = label;
+  mainBtn.addEventListener('click', main);
+
+  const dropBtn = document.createElement('button');
+  dropBtn.className = `btn btn-sm split-btn-drop ${extraCls}`.trim();
+  dropBtn.innerHTML = '\u25BE';
+  dropBtn.title = `${label} from JSON file`;
+
+  const menu = document.createElement('div');
+  menu.className = 'toolbar-more-menu hidden';
+  const menuItem = document.createElement('button');
+  menuItem.className = 'toolbar-menu-item';
+  menuItem.textContent = `${label} from JSON file`;
+  menuItem.addEventListener('click', () => { menu.classList.add('hidden'); file(); });
+  menu.appendChild(menuItem);
+
+  dropBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Close other menus
+    document.querySelectorAll('.split-btn .toolbar-more-menu').forEach((m) => {
+      if (m !== menu) m.classList.add('hidden');
+    });
+    menu.classList.toggle('hidden');
+  });
+  document.addEventListener('click', () => menu.classList.add('hidden'));
+
+  wrap.appendChild(mainBtn);
+  wrap.appendChild(dropBtn);
+  wrap.appendChild(menu);
+  return wrap;
+}
+
 function initPanelResize(resizer, leftPane) {
+  // Restore saved width
+  chrome.storage.local.get(['mdhPipelineWidth'], ({ mdhPipelineWidth }) => {
+    if (mdhPipelineWidth) {
+      leftPane.style.width = mdhPipelineWidth + 'px';
+      leftPane.style.flexBasis = mdhPipelineWidth + 'px';
+    }
+  });
+
   let startX, startWidth;
   resizer.addEventListener('mousedown', (e) => {
     startX = e.clientX;
@@ -548,6 +511,7 @@ function initPanelResize(resizer, leftPane) {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
       pipelineEditor.refresh();
+      chrome.storage.local.set({ mdhPipelineWidth: leftPane.getBoundingClientRect().width });
     }
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
@@ -638,9 +602,9 @@ function renderRecords(records) {
     if (skip > 0) {
       empty.innerHTML = '<p>No more records on this page</p><p class="record-list-empty-hint">Try going back to the previous page</p>';
     } else if (hasNonTrivialPipeline) {
-      empty.innerHTML = '<p>No records match the current query</p><p class="record-list-empty-hint">Try modifying the pipeline or click Reset to start over</p>';
+      empty.innerHTML = '<p>0 records match the current query</p><p class="record-list-empty-hint">Try modifying the pipeline or click Reset</p>';
     } else {
-      empty.innerHTML = '<p>This collection is empty</p><p class="record-list-empty-hint">Insert records using the + Insert button or import a JSON file</p>';
+      empty.innerHTML = '<p>No records</p>';
     }
     listEl.appendChild(empty);
   }
@@ -669,7 +633,6 @@ function renderRecords(records) {
     actions.innerHTML = `
       <button class="action-copy" title="Copy record as JSON">Copy</button>
       <button class="action-edit" title="Edit with update expression">Edit</button>
-      <button class="action-replace" title="Replace entire document">Replace</button>
       <button class="action-delete" title="Delete this record">Del</button>
     `;
 
@@ -710,9 +673,6 @@ function renderRecords(records) {
     actions.querySelector('.action-edit').addEventListener('click', () => {
       openRecordEditor('edit', record, () => runQuery(), currentFields);
     });
-    actions.querySelector('.action-replace').addEventListener('click', () => {
-      openRecordEditor('replace', record, () => runQuery(), currentFields);
-    });
     actions.querySelector('.action-delete').addEventListener('click', () => {
       const deleteId = record._id?.$oid || record._id || '?';
       confirmModal(
@@ -738,8 +698,12 @@ function renderRecords(records) {
   const skip = state.get('skip');
   const limit = state.get('limit');
   const count = records.length;
-  document.getElementById('recordCount').textContent = count > 0
-    ? `Showing ${skip + 1}\u2013${skip + count}` : 'No records';
+  let countText = count > 0
+    ? `Showing ${skip + 1}\u2013${skip + count}`
+    : 'No records';
+  if (totalCount !== null) countText += ` (out of ${totalCount})`;
+  if (lastQueryMs) countText += ` \u00b7 ${lastQueryMs}ms`;
+  document.getElementById('recordCount').textContent = countText;
   document.getElementById('recordPage').textContent = `Page ${Math.floor(skip / limit) + 1}`;
   document.getElementById('recordPrev').disabled = skip === 0;
   document.getElementById('recordNext').disabled = count < limit;

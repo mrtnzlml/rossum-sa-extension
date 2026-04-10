@@ -179,7 +179,7 @@ const compactTheme = EditorView.theme({
   },
 });
 
-export function createJsonEditor({ value = '', minHeight = '200px', mode = 'default', fields, compact = false, onSubmit, onValidChange, onChange } = {}) {
+export function createJsonEditor({ value = '', minHeight = '200px', mode = 'default', fields, compact = false, onSubmit, onValidChange, onChange, readOnly = false } = {}) {
   const wrapper = document.createElement('div');
   wrapper.className = compact ? 'json-editor json-editor-compact' : 'json-editor';
   if (!compact) wrapper.style.minHeight = minHeight;
@@ -230,9 +230,8 @@ export function createJsonEditor({ value = '', minHeight = '200px', mode = 'defa
     }),
   ];
 
-  if (darkQuery.matches) {
-    extensions.push(oneDark);
-  }
+  if (readOnly) extensions.push(EditorState.readOnly.of(true));
+  if (darkQuery.matches) extensions.push(oneDark);
 
   const state = EditorState.create({ doc: value, extensions });
   const view = new EditorView({ state, parent: wrapper });

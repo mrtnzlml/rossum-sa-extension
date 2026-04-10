@@ -18,40 +18,25 @@ export function openDeleteMany(onSuccess, fields) {
   filterLabel.textContent = 'Filter:';
   body.appendChild(filterLabel);
 
-  const filterEditor = createJsonEditor({ value: '{}', minHeight: '80px', mode: 'query', fields });
+  const filterEditor = createJsonEditor({
+    value: '{}',
+    minHeight: '100px',
+    mode: 'query',
+    fields,
+    onValidChange: refreshCount,
+  });
   body.appendChild(filterEditor.el);
 
   const hint = document.createElement('div');
   hint.className = 'input-hint';
   body.appendChild(hint);
 
-  const previewBox = document.createElement('div');
-  previewBox.className = 'preview-box hidden';
-  const previewPre = document.createElement('pre');
-  previewBox.appendChild(previewPre);
-  body.appendChild(previewBox);
+  const countInfo = document.createElement('div');
+  countInfo.className = 'modal-count-info hidden';
+  body.appendChild(countInfo);
 
   const actions = document.createElement('div');
   actions.className = 'modal-actions';
-
-  const previewBtn = document.createElement('button');
-  previewBtn.className = 'btn btn-secondary';
-  previewBtn.textContent = 'Preview (5 docs)';
-
-  previewBtn.addEventListener('click', async () => {
-    if (!filterEditor.isValid()) {
-      hint.textContent = 'Invalid JSON';
-      return;
-    }
-    try {
-      const res = await api.find(state.get('selectedCollection'), { query: filterEditor.getParsed(), limit: 5 });
-      previewPre.textContent = JSON.stringify(res.result, null, 2);
-      previewBox.classList.remove('hidden');
-      hint.textContent = '';
-    } catch (err) {
-      hint.textContent = err.message;
-    }
-  });
 
   const cancelBtn = document.createElement('button');
   cancelBtn.className = 'btn btn-secondary';
@@ -60,14 +45,10 @@ export function openDeleteMany(onSuccess, fields) {
 
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'btn btn-danger';
-  deleteBtn.textContent = 'Delete Many';
+  deleteBtn.textContent = 'Delete';
 
   deleteBtn.addEventListener('click', async () => {
-    if (!filterEditor.isValid()) {
-      hint.textContent = 'Invalid JSON';
-      return;
-    }
-
+    if (!filterEditor.isValid()) { hint.textContent = 'Invalid JSON'; return; }
     try {
       state.set({ loading: true, error: null });
       const res = await api.deleteMany(state.get('selectedCollection'), filterEditor.getParsed());
@@ -75,10 +56,7 @@ export function openDeleteMany(onSuccess, fields) {
       const count = res.result?.deleted_count ?? 0;
       hint.style.color = 'var(--success)';
       hint.textContent = `Deleted ${count} document${count !== 1 ? 's' : ''}`;
-      setTimeout(() => {
-        closeModal();
-        if (onSuccess) onSuccess();
-      }, 1200);
+      setTimeout(() => { closeModal(); if (onSuccess) onSuccess(); }, 1200);
     } catch (err) {
       state.set({ loading: false });
       hint.style.color = '';
@@ -86,10 +64,25 @@ export function openDeleteMany(onSuccess, fields) {
     }
   });
 
-  actions.appendChild(previewBtn);
   actions.appendChild(cancelBtn);
   actions.appendChild(deleteBtn);
   body.appendChild(actions);
 
   openModal('Delete Many', body);
+  refreshCount();
+
+  async function refreshCount() {
+    if (!filterEditor.isValid()) { countInfo.classList.add('hidden'); return; }
+    try {
+      const res = await api.aggregate(state.get('selectedCollection'), [
+        { $match: filterEditor.getParsed() },
+        { $count: 'total' },
+      ]);
+      const total = res.result?.[0]?.total ?? 0;
+      countInfo.textContent = `${total} document${total !== 1 ? 's' : ''} will be deleted`;
+      countInfo.classList.remove('hidden');
+    } catch {
+      countInfo.classList.add('hidden');
+    }
+  }
 }

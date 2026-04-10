@@ -7,7 +7,7 @@ const state = {
   selectedCollection: null,
   records: [],
   skip: 0,
-  limit: 30,
+  limit: 50,
   activePanel: 'data',
   loading: false,
   error: null,

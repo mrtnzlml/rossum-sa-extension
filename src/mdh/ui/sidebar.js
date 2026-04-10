@@ -79,6 +79,7 @@ function buildCollectionRow(name, isActive) {
 }
 
 function selectCollection(name) {
+  if (state.get('selectedCollection') === name) return;
   state.set({ selectedCollection: name, records: [], skip: 0, error: null });
 }
 

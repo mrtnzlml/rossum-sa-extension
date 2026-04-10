@@ -70,8 +70,16 @@ async function boot() {
 function initSidebarResize() {
   const sidebar = document.getElementById('sidebar');
   const resizer = document.getElementById('sidebarResizer');
-  let startX, startWidth;
 
+  // Restore saved width
+  chrome.storage.local.get(['mdhSidebarWidth'], ({ mdhSidebarWidth }) => {
+    if (mdhSidebarWidth) {
+      sidebar.style.width = mdhSidebarWidth + 'px';
+      sidebar.style.minWidth = mdhSidebarWidth + 'px';
+    }
+  });
+
+  let startX, startWidth;
   resizer.addEventListener('mousedown', (e) => {
     startX = e.clientX;
     startWidth = sidebar.getBoundingClientRect().width;
@@ -91,6 +99,7 @@ function initSidebarResize() {
       document.body.style.userSelect = '';
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      chrome.storage.local.set({ mdhSidebarWidth: sidebar.getBoundingClientRect().width });
     }
 
     document.addEventListener('mousemove', onMove);
