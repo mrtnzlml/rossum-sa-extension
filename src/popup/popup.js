@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   if (!isRossum && !isNetsuite && !isCoupa) {
     document.getElementById('mainContent').classList.add('hidden');
+    document.getElementById('masterDataHub').classList.add('hidden');
     document.getElementById('unsupportedSite').classList.remove('hidden');
     return;
   }
