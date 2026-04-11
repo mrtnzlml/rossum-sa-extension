@@ -13,10 +13,13 @@
   "version": "0.19.2",
   "scripts": {
     "build": "node build.js",
-    "dev": "node build.js --watch"
+    "dev": "node build.js --watch",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "esbuild": "^0.28.0"
+    "esbuild": "^0.28.0",
+    "jsdom": "^29.0.2",
+    "vitest": "^4.1.4"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",
