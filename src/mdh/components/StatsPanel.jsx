@@ -1,4 +1,4 @@
-import { h } from 'preact';
+import { h, Fragment } from 'preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { selectedCollection, activePanel, error } from '../store.js';
 import * as api from '../api.js';
@@ -22,28 +22,10 @@ function FieldName({ path }) {
   );
 }
 
-// ── Heatmap helpers ─────────────────────────────
-
-// Returns a CSS class for percentage-based heatmap (higher = better)
-function heatPct(pct) {
-  if (pct === 100) return 'stats-heat-good';
-  if (pct >= 80) return '';
-  if (pct >= 50) return 'stats-heat-warn';
-  return 'stats-heat-bad';
-}
-
-// Returns a CSS class for issue count heatmap (any > 0 = bad)
-function heatCount(count, total) {
-  if (!count || !total) return '';
-  const ratio = count / total;
-  if (ratio > 0.3) return 'stats-heat-bad';
-  if (ratio > 0.05) return 'stats-heat-warn';
-  return 'stats-heat-mild';
-}
-
 // ── UI helpers ──────────────────────────────────
 
 function Section({ title, status, children }) {
+  const [isCollapsed, setCollapsed] = useState(false);
   const isError = status && typeof status === 'object' && status.error;
   const statusCls = status === 'done'
     ? 'stats-status-done'
@@ -53,14 +35,17 @@ function Section({ title, status, children }) {
   const statusText = status === 'done' ? 'done' : isError ? 'error' : 'running\u2026';
   return (
     <div class="stats-section">
-      <div class="stats-section-header">
-        <span class="stats-section-title">{title}</span>
+      <div class="stats-section-header" onClick={() => setCollapsed(!isCollapsed)}>
+        <span class="stats-section-chevron">{isCollapsed ? '\u25b8' : '\u25be'}</span>
+        <span class="stats-section-title" style="flex:1">{title}</span>
         <span class={`stats-status ${statusCls}`}>{statusText}</span>
       </div>
-      <div class="stats-section-body">
-        {isError && <div class="stats-error">{status.error}</div>}
-        {children}
-      </div>
+      {!isCollapsed && (
+        <div class="stats-section-body">
+          {isError && <div class="stats-error">{status.error}</div>}
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -140,6 +125,71 @@ function formatDate(d) {
   if (!d) return '\u2014';
   const s = typeof d === 'string' ? d : d.$date || String(d);
   try { return new Date(s).toISOString().split('T')[0]; } catch { return String(s); }
+}
+
+// ── Visual helpers ──────────────────────────────
+
+function HealthRing({ score }) {
+  const size = 80;
+  const strokeWidth = 6;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const hasScore = score !== null && score !== undefined;
+  const offset = hasScore ? circumference - (score / 100) * circumference : circumference;
+  const color = hasScore ? healthColor(score) : 'var(--text-secondary)';
+  return (
+    <svg width={size} height={size} class="stats-health-ring" viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--border)" stroke-width={strokeWidth} />
+      {hasScore && (
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={color} stroke-width={strokeWidth}
+          stroke-dasharray={circumference} stroke-dashoffset={offset}
+          stroke-linecap="round" transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          class="stats-health-ring-arc" />
+      )}
+      <text x="50%" y="50%" text-anchor="middle" dominant-baseline="central"
+        fill={color} class="stats-health-ring-text">{hasScore ? score : '?'}</text>
+    </svg>
+  );
+}
+
+
+
+function toTimestamp(d) {
+  if (!d) return null;
+  const s = typeof d === 'string' ? d : d.$date || String(d);
+  try { return new Date(s).getTime(); } catch { return null; }
+}
+
+function DateTimeline({ ranges }) {
+  const timestamps = ranges.flatMap((d) => [toTimestamp(d.earliest), toTimestamp(d.latest)]).filter(Boolean);
+  if (timestamps.length < 2) return null;
+  const globalMin = Math.min(...timestamps);
+  const globalMax = Math.max(...timestamps);
+  const span = globalMax - globalMin || 1;
+  return (
+    <div class="stats-timeline">
+      {ranges.map((d) => {
+        const start = toTimestamp(d.earliest);
+        const end = toTimestamp(d.latest);
+        if (start == null || end == null) return null;
+        const left = ((start - globalMin) / span) * 100;
+        const width = Math.max(((end - start) / span) * 100, 1);
+        return (
+          <div class="stats-timeline-row">
+            <span class="stats-timeline-label">{d.field.split('.').pop()}</span>
+            <div class="stats-timeline-track">
+              <div class="stats-timeline-bar" style={{ left: `${left}%`, width: `${width}%` }} />
+            </div>
+            <span class="stats-timeline-dates">{formatDate(d.earliest)} {'\u2014'} {formatDate(d.latest)}</span>
+          </div>
+        );
+      })}
+      <div class="stats-timeline-axis">
+        <span>{formatDate(new Date(globalMin).toISOString())}</span>
+        <span>{formatDate(new Date(globalMax).toISOString())}</span>
+      </div>
+    </div>
+  );
 }
 
 // ── Component ───────────────────────────────────
@@ -371,6 +421,12 @@ export default function StatsPanel() {
         </button>
       </div>
 
+      {running && (
+        <div class="stats-progress-track">
+          <div class="stats-progress-fill" style={{ width: `${Math.round((doneCount / totalChecks) * 100)}%` }} />
+        </div>
+      )}
+
       <div class="stats-scroll">
         {discovering && (
           <div class="stats-empty">Discovering fields{'\u2026'}</div>
@@ -397,23 +453,18 @@ export default function StatsPanel() {
                   class="stats-overview-card stats-health-card"
                   style={{ borderColor: health !== null ? healthColor(health) : 'var(--border)' }}
                 >
-                  <div
-                    class="stats-overview-value"
-                    style={{ color: health !== null ? healthColor(health) : 'var(--text-secondary)' }}
-                  >
-                    {health !== null ? health : '?'}
-                  </div>
+                  <HealthRing score={health} />
                   <div class="stats-overview-label">
                     {health !== null ? `Health \u2014 ${healthLabel(health)}` : 'Health \u2014 calculating\u2026'}
                   </div>
                 </div>
                 <div class="stats-overview-card">
-                  <div class="stats-overview-value">{overview.total.toLocaleString()}</div>
-                  <div class="stats-overview-label">Documents</div>
+                  <div class="stats-metric-value">{overview.total.toLocaleString()}</div>
+                  <div class="stats-metric-label">Documents</div>
                 </div>
                 <div class="stats-overview-card">
-                  <div class="stats-overview-value">{overview.fieldCount}</div>
-                  <div class="stats-overview-label">Fields</div>
+                  <div class="stats-metric-value">{overview.fieldCount}</div>
+                  <div class="stats-metric-label">Fields</div>
                 </div>
               </div>
             </Section>
@@ -453,10 +504,13 @@ export default function StatsPanel() {
                   return (
                     <tr>
                       <td><FieldName path={c.field} /></td>
-                      <td class={`stats-mono ${heatPct(c.pct)}`}>{c.pct}%</td>
-                      <td class={`stats-mono ${heatCount(e?.nullCount, c.total)}`}>{e && e.nullCount > 0 ? e.nullCount.toLocaleString() : '\u2014'}</td>
-                      <td class={`stats-mono ${heatCount(e?.missingCount, c.total)}`}>{e && e.missingCount > 0 ? e.missingCount.toLocaleString() : '\u2014'}</td>
-                      <td class={`stats-mono ${heatCount(e?.emptyCount, c.total)}`}>{e && e.emptyCount > 0 ? e.emptyCount.toLocaleString() : '\u2014'}</td>
+                      <td class="stats-mono stats-coverage-cell">
+                        <div class="stats-coverage-bar" style={{ width: `${c.pct}%` }} />
+                        <span class="stats-coverage-text">{c.pct}%</span>
+                      </td>
+                      <td class="stats-mono">{e && e.nullCount > 0 ? e.nullCount.toLocaleString() : '\u2014'}</td>
+                      <td class="stats-mono">{e && e.missingCount > 0 ? e.missingCount.toLocaleString() : '\u2014'}</td>
+                      <td class="stats-mono">{e && e.emptyCount > 0 ? e.emptyCount.toLocaleString() : '\u2014'}</td>
                       <td>
                         {t ? (
                           <span class="stats-type-tags-inline">
@@ -541,43 +595,46 @@ export default function StatsPanel() {
         {/* ── Field Profiling ────────────────────────── */}
 
         {/* Distinct Values */}
-        {cardinality && canShow('cardinality') && (
-          <Section title="Distinct Values" status={statuses.cardinality}>
-            <div class="stats-note">
-              How many different values each field has out of {(overview?.total || 0).toLocaleString()} documents.
-              "all different" means every document has a unique value (typical for IDs).
-              "mostly same" means most documents share the same values (typical for categories like country or status).
-            </div>
-            <table class="stats-table">
-              <thead>
-                <tr>
-                  <th>Field</th>
-                  <th>Distinct</th>
-                  <th>Repeats</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cardinality.map((c) => {
-                  const total = overview?.total || 0;
-                  const pct = total > 0 ? Math.floor((c.distinct / total) * 100) : 0;
-                  let label, cls;
-                  if (c.distinct <= 1) { label = 'all same'; cls = 'stats-heat-neutral-high'; }
-                  else if (pct === 100) { label = 'all different'; cls = 'stats-heat-neutral-high'; }
-                  else if (pct >= 50) { label = 'some repeats'; cls = 'stats-heat-neutral-mid'; }
-                  else if (pct >= 10) { label = 'many repeats'; cls = 'stats-heat-neutral-mid'; }
-                  else { label = 'mostly same'; cls = 'stats-heat-neutral-high'; }
-                  return (
-                    <tr>
-                      <td><FieldName path={c.field} /></td>
-                      <td class="stats-mono">{c.distinct.toLocaleString()}</td>
-                      <td class={`stats-mono ${cls}`}>{label}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </Section>
-        )}
+        {cardinality && canShow('cardinality') && (() => {
+          const total = overview?.total || 0;
+          const sorted = [...cardinality].sort((a, b) => {
+            const pa = total > 0 ? a.distinct / total : 0;
+            const pb = total > 0 ? b.distinct / total : 0;
+            return pb - pa;
+          });
+          return (
+            <Section title="Field Diversity" status={statuses.cardinality}>
+              <div class="stats-note">
+                How many different values each field has out of {total.toLocaleString()} documents. Fields sorted from most diverse (likely IDs) to least (likely categories).
+              </div>
+              <table class="stats-table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th style="min-width:120px">Diversity</th>
+                    <th>Distinct</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((c) => {
+                    const pct = total > 0 ? Math.round((c.distinct / total) * 100) : 0;
+                    const pctLabel = pct === 0 && c.distinct > 0 ? '<1' : String(pct);
+                    return (
+                      <tr>
+                        <td><FieldName path={c.field} /></td>
+                        <td class="stats-mono stats-coverage-cell">
+                          <div class="stats-coverage-bar" style={{ width: `${pct}%` }} />
+                          <span class="stats-coverage-text">{pctLabel}%</span>
+                        </td>
+                        <td class="stats-mono stats-subtle">{c.distinct.toLocaleString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </Section>
+          );
+        })()}
 
         {/* String Analysis (merged: whitespace + string length) */}
         {stringAnalysis && canShow('strings') && (
@@ -609,8 +666,8 @@ export default function StatsPanel() {
                         <td class="stats-mono">{s.minLen}</td>
                         <td class="stats-mono">{s.maxLen}</td>
                         <td class="stats-mono">{s.avgLen}</td>
-                        <td class={`stats-mono ${heatCount(s.leading, s.count)}`}>{s.leading > 0 ? s.leading.toLocaleString() : '\u2014'}</td>
-                        <td class={`stats-mono ${heatCount(s.trailing, s.count)}`}>{s.trailing > 0 ? s.trailing.toLocaleString() : '\u2014'}</td>
+                        <td class="stats-mono">{s.leading > 0 ? s.leading.toLocaleString() : '\u2014'}</td>
+                        <td class="stats-mono">{s.trailing > 0 ? s.trailing.toLocaleString() : '\u2014'}</td>
                       </tr>
                   ))}
                 </tbody>
@@ -665,26 +722,29 @@ export default function StatsPanel() {
             {dateRanges.length === 0 ? (
               <div class="stats-ok">No date fields found in this collection</div>
             ) : (
-              <table class="stats-table">
-                <thead>
-                  <tr>
-                    <th>Field</th>
-                    <th>Count</th>
-                    <th>Earliest</th>
-                    <th>Latest</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dateRanges.map((d) => (
+              <Fragment>
+                <table class="stats-table">
+                  <thead>
                     <tr>
-                      <td><FieldName path={d.field} /></td>
-                      <td class="stats-mono">{d.count.toLocaleString()}</td>
-                      <td class="stats-mono">{formatDate(d.earliest)}</td>
-                      <td class="stats-mono">{formatDate(d.latest)}</td>
+                      <th>Field</th>
+                      <th>Count</th>
+                      <th>Earliest</th>
+                      <th>Latest</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {dateRanges.map((d) => (
+                      <tr>
+                        <td><FieldName path={d.field} /></td>
+                        <td class="stats-mono">{d.count.toLocaleString()}</td>
+                        <td class="stats-mono">{formatDate(d.earliest)}</td>
+                        <td class="stats-mono">{formatDate(d.latest)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {dateRanges.length > 1 && <DateTimeline ranges={dateRanges} />}
+              </Fragment>
             )}
           </Section>
         )}
@@ -700,14 +760,18 @@ export default function StatsPanel() {
                   {d.values.length === 0 ? (
                     <div class="stats-dist-empty">no values</div>
                   ) : (
-                    d.values.map((v) => (
-                      <div class={`stats-dist-row${isSpecialValue(v.value) ? ' stats-dist-row-special' : ''}`}>
-                        <span class="stats-dist-value" title={formatValue(v.value)}>
-                          <FormattedValue value={v.value} />
-                        </span>
-                        <span class="stats-dist-count">{v.count.toLocaleString()}</span>
-                      </div>
-                    ))
+                    (() => {
+                      const maxCount = d.values[0]?.count || 1;
+                      return d.values.map((v) => (
+                        <div class={`stats-dist-row${isSpecialValue(v.value) ? ' stats-dist-row-special' : ''}`}>
+                          <div class="stats-dist-bar" style={{ width: `${Math.round((v.count / maxCount) * 100)}%` }} />
+                          <span class="stats-dist-value" title={formatValue(v.value)}>
+                            <FormattedValue value={v.value} />
+                          </span>
+                          <span class="stats-dist-count">{v.count.toLocaleString()}</span>
+                        </div>
+                      ));
+                    })()
                   )}
                 </div>
               ))}
