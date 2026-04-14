@@ -21,10 +21,16 @@ const PROMPTS = {
   record:
     'Summarize this database record in 1-2 sentences. Describe what it represents and its most important fields. ' +
     'Use inline code (backticks) for field names. No bullet points or headings.',
+  nlsearch:
+    'You are a MongoDB expert. You are given the current aggregation pipeline and the user\'s request. ' +
+    'Modify the pipeline according to the request — add, remove, or change stages as needed. ' +
+    'If the request describes a completely new query, replace the pipeline entirely. ' +
+    'Output ONLY valid JSON — an array of pipeline stages. No explanation, no markdown, no code fences, no trailing text. ' +
+    'Always include a $limit stage (default 50).',
 };
 
 // Bump this when system prompts change to invalidate cached explanations
-const PROMPT_VERSION = 3;
+const PROMPT_VERSION = 4;
 
 // Chrome version changes when the underlying Gemini Nano model updates
 const CHROME_VERSION = /Chrome\/([\d.]+)/.exec(navigator.userAgent)?.[1] || '';
@@ -48,7 +54,10 @@ export async function getAvailability() {
     return availabilityCache;
   }
   try {
-    availabilityCache = await LanguageModel.availability();
+    availabilityCache = await LanguageModel.availability({
+      expectedInputs: [{ type: 'text', languages: ['en'] }],
+      expectedOutputs: [{ type: 'text', languages: ['en'] }],
+    });
   } catch {
     availabilityCache = 'unavailable';
   }
@@ -65,6 +74,11 @@ export async function initAvailability() {
   if (stored.aiFeaturesEnabled) {
     await enableAI();
   }
+}
+
+export async function needsDownload() {
+  const avail = await getAvailability();
+  return avail === 'after-download' || avail === 'downloading';
 }
 
 export async function enableAI() {
@@ -91,8 +105,9 @@ export async function enableAI() {
     });
     aiStatus.value = 'ready';
   } catch {
+    // Session pre-creation failed — keep AI enabled but don't claim ready.
+    // Features stay hidden (gated on 'ready'). User can toggle off/on to retry.
     aiStatus.value = 'idle';
-    aiEnabled.value = false;
   }
 }
 
@@ -130,6 +145,8 @@ async function getOrCreateSession(type, onDownloadProgress) {
 
   const session = await LanguageModel.create({
     initialPrompts: [{ role: 'system', content: systemPrompt }],
+    expectedInputs: [{ type: 'text', languages: ['en'] }],
+    expectedOutputs: [{ type: 'text', languages: ['en'] }],
     temperature: 0.3,
     topK: 3,
     monitor(m) {
@@ -148,10 +165,11 @@ function formatPrompt(input, type) {
   if (type === 'error') return 'Explain this error:\n' + input;
   if (type === 'pipeline') return 'Explain this pipeline:\n' + input;
   if (type === 'record') return 'Summarize this record:\n' + JSON.stringify(input, null, 2);
+  if (type === 'nlsearch') return input; // user query + fields are already formatted by caller
   return 'Explain this index:\n' + JSON.stringify(input, null, 2);
 }
 
-export async function ask(input, type, { signal } = {}) {
+export async function ask(input, type, { signal, skipCache } = {}) {
   const session = await getOrCreateSession(type);
   const prompt = formatPrompt(input, type);
   let result;
@@ -163,16 +181,22 @@ export async function ask(input, type, { signal } = {}) {
     }
     throw err;
   }
-  await cacheResult(input, type, result);
+  // Destroy one-shot sessions to prevent conversation history accumulation
+  if (type === 'nlsearch') {
+    session.destroy();
+    sessions.delete(type);
+  }
+  if (!skipCache) await cacheResult(input, type, result);
   return result;
 }
 
 // Preload AI results in background (serialized to avoid concurrent prompts on same session)
-let preloadQueue = Promise.resolve();
+const preloadQueues = new Map();
 
 export function preload(input, type) {
   if (!aiEnabled.value || input == null) return;
-  preloadQueue = preloadQueue.then(async () => {
+  const prev = preloadQueues.get(type) || Promise.resolve();
+  const next = prev.then(async () => {
     try {
       const cached = await getCached(input, type);
       if (cached) return;
@@ -181,6 +205,7 @@ export function preload(input, type) {
       // Silently ignore — AiInsight will retry when mounted
     }
   });
+  preloadQueues.set(type, next);
 }
 
 // Backward-compatible aliases

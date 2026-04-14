@@ -61,7 +61,7 @@ export default function PlaceholderInputs({ names, values, onSetValue, onRunQuer
         <div class="placeholder-annotation-row">
           <input
             class="input"
-            placeholder="Annotation ID or URL\u2026"
+            placeholder={"Annotation ID or URL\u2026"}
             style="flex:1"
             onKeyDown={(e) => { if (e.key === 'Enter') loadAnnotation(e.target.value.trim()); }}
             onPaste={(e) => { setTimeout(() => loadAnnotation(e.target.value.trim()), 0); }}

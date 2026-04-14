@@ -101,9 +101,21 @@ function confirmDrop(name) {
   );
 }
 
-function handleAiToggle() {
+async function handleAiToggle() {
   if (aiEnabled.value) {
     ai.disableAI();
+    return;
+  }
+
+  const download = await ai.needsDownload();
+  if (download) {
+    confirmModal(
+      'Download AI Model',
+      'Enabling AI features requires downloading Chrome\u2019s built-in AI model (~4 GB). ' +
+      'Your device needs at least 22 GB of free disk space and an unmetered network connection. ' +
+      'The model runs locally and no data is sent to external servers. Continue?',
+      () => ai.enableAI(),
+    );
   } else {
     ai.enableAI();
   }
@@ -164,7 +176,7 @@ export default function Sidebar() {
             <div
               class="sidebar-nav-item sidebar-ai-toggle"
               onClick={handleAiToggle}
-              title={isAiEnabled ? 'Disable AI features' : 'Enable AI features (experimental, ~2 GB model download)'}
+              title={isAiEnabled ? 'Disable AI features' : 'Enable AI features (experimental, ~4 GB model download)'}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2l.5 4 4 .5-4 .5-.5 4-.5-4-4-.5 4-.5z"/><path d="M18 9l.5 3 3 .5-3 .5-.5 3-.5-3-3-.5 3-.5z"/><path d="M11 16l.5 3 3 .5-3 .5-.5 3-.5-3-3-.5 3-.5z"/></svg>
               <span>AI Features</span>
@@ -173,10 +185,17 @@ export default function Sidebar() {
             </div>
             {isAiDownloading && (
               <div class="sidebar-ai-download">
-                <div class="ai-download-info">Downloading model... {downloadPct}%</div>
-                <div class="ai-download-bar">
-                  <div class="ai-download-bar-fill" style={{ width: downloadPct + '%' }} />
+                <div class="ai-download-info">
+                  {downloadPct > 0 ? `Downloading model... ${downloadPct}%` : 'Preparing AI model...'}
                 </div>
+                <div class={'ai-download-bar' + (downloadPct === 0 ? ' indeterminate' : '')}>
+                  <div class="ai-download-bar-fill" style={downloadPct > 0 ? { width: downloadPct + '%' } : {}} />
+                </div>
+              </div>
+            )}
+            {isAiEnabled && !isAiDownloading && aiStatus.value !== 'ready' && (
+              <div class="sidebar-ai-download">
+                <div class="ai-download-info">Initializing AI model...</div>
               </div>
             )}
           </div>

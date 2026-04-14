@@ -261,9 +261,11 @@ body {
 .error-banner {
   padding: 8px 16px; background: var(--danger-bg); border-bottom: 1px solid var(--danger-border);
   color: var(--danger-fg); font-size: 12px;
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; gap: 4px;
   position: relative;
 }
+
+.error-banner > span { flex: 1; }
 
 .error-banner .dismiss {
   background: none; border: none; color: inherit; cursor: pointer;
@@ -864,7 +866,70 @@ body {
 }
 
 .pipeline-header-actions {
-  display: flex; gap: 4px;
+  display: flex; gap: 4px; align-items: center;
+}
+
+.nl-search-row {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.nl-search-input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.nl-search-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.nl-search-input:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.nl-search-input.loading {
+  background: var(--bg-hover);
+  color: transparent;
+}
+
+.nl-search-input.loading::placeholder {
+  color: transparent;
+}
+
+.nl-search-input::placeholder {
+  color: var(--text-secondary);
+}
+
+.nl-search-wrapper {
+  position: relative;
+}
+
+.nl-search-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-style: italic;
+  pointer-events: none;
+  animation: nl-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes nl-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 
 .pipeline-action-btn {
@@ -961,6 +1026,17 @@ body {
   background: var(--accent);
   border-radius: 2px;
   transition: width 0.3s ease;
+}
+
+.ai-download-bar.indeterminate .ai-download-bar-fill {
+  width: 30%;
+  animation: indeterminate-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes indeterminate-slide {
+  0% { margin-left: 0; }
+  50% { margin-left: 70%; }
+  100% { margin-left: 0; }
 }
 
 .ai-download-info {
