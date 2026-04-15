@@ -17,6 +17,7 @@ import { addToHistory } from './QueryHistory.jsx';
 import * as api from '../api.js';
 import * as cache from '../cache.js';
 import { applySortToPipeline, applyFilterDeltaToPipeline, applySkipToPipeline, extractUIStateFromPipeline } from '../pipelineOps.js';
+import { savePipelineState, getPipelineState } from '../pipelineState.js';
 import JSON5 from 'json5';
 
 const MAX_LIMIT = 500;
@@ -133,7 +134,22 @@ export default function DataPanel() {
         editorRef.current.setValue(pending.pipelineText);
         setTimeout(() => { pipeline.suppressSync.value = false; runQuery(); }, 100);
       }, 50);
-      return;
+      return () => { saveStateForCleanup(collection); };
+    }
+
+    // Restore previously saved per-collection state (preserved across tab switches
+    // and within-session collection switches) before falling through to defaults.
+    const saved = getPipelineState(collection);
+    if (saved) {
+      skip.value = saved.skip || 0;
+      if (saved.variables) pipeline.placeholderValues.value = { ...saved.variables };
+      setTimeout(() => {
+        if (!editorRef.current) return;
+        pipeline.suppressSync.value = true;
+        editorRef.current.setValue(saved.pipelineText);
+        setTimeout(() => { pipeline.suppressSync.value = false; runQuery(); }, 100);
+      }, 50);
+      return () => { saveStateForCleanup(collection); };
     }
 
     const cachedRecords = cache.get(collection, 'records');
@@ -144,7 +160,21 @@ export default function DataPanel() {
       query.setCacheNextQuery(true);
       setTimeout(() => syncPipelineAndRun(), 50);
     }
+
+    // Cleanup runs on unmount (tab switch) and before the next [collection] effect
+    // (collection switch). Capture whatever's in the editor at that moment so
+    // returning to this collection — from any tab — restores the user's edits.
+    return () => { saveStateForCleanup(collection); };
   }, [collection]);
+
+  function saveStateForCleanup(col) {
+    if (!editorRef.current) return;
+    savePipelineState(col, {
+      pipelineText: editorRef.current.getValue(),
+      variables: { ...pipeline.placeholderValues.value },
+      skip: skip.value,
+    });
+  }
 
   function invalidateAndRun() {
     cache.invalidateData(collection);
