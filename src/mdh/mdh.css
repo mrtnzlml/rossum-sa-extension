@@ -76,7 +76,7 @@ body {
 .app-root { display: flex; flex: 1; min-width: 0; }
 
 .sidebar {
-  width: 240px; min-width: 240px;
+  width: 260px; min-width: 260px;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column; overflow: hidden;

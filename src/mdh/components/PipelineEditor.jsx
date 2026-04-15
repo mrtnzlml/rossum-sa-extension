@@ -33,6 +33,23 @@ export default function PipelineEditor({ editorRef, initialValue, onChange, onVa
     return () => document.removeEventListener('click', onClick);
   }, [overflowOpen]);
 
+  // Close the save-query input on click outside or scroll
+  useEffect(() => {
+    if (!showSaveInput) return;
+    function onMouseDown(e) {
+      if (e.target.closest('.pipeline-save-inline')) return;
+      if (e.target.closest('.pipeline-save-btn')) return;
+      setShowSaveInput(false);
+    }
+    function onScroll() { setShowSaveInput(false); }
+    document.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [showSaveInput]);
+
   const fieldsFn = () => extractFieldNames(records.value);
 
   async function updateSaveBtn() {
