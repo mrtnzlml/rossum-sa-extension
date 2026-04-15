@@ -4,11 +4,19 @@ import { skip } from '../store.js';
 
 const PLACEHOLDER_RE = /\{(\w+)\}/g;
 
+// Default sort: _id descending. Stable ordering for pagination, newest-first
+// when _id is an ObjectId, and always indexed (every collection has the `_id_` index).
+// Held in sortState directly so the `_id` column shows its ↓ indicator by default,
+// and so any user sort key is followed by _id as a deterministic tiebreaker.
+function defaultSortState() {
+  return { _id: -1 };
+}
+
 export function usePipeline() {
   const stateRef = useRef(null);
   if (!stateRef.current) {
     stateRef.current = {
-      sortState: signal({}),
+      sortState: signal(defaultSortState()),
       filterState: signal({}),
       placeholderValues: signal({}),
       suppressSync: signal(false),
@@ -22,17 +30,27 @@ export function usePipeline() {
     const match = Object.keys(filters).length > 0 ? { ...filters } : {};
     pipeline.push({ $match: match });
     const sorts = sortState.value;
-    if (Object.keys(sorts).length > 0) pipeline.push({ $sort: { ...sorts } });
+    if (Object.keys(sorts).length > 0) {
+      pipeline.push({ $sort: { ...sorts } });
+    }
     pipeline.push({ $skip: skip.value });
     return pipeline;
   }
 
   function toggleSort(field) {
     const current = { ...sortState.value };
-    if (!current[field]) current[field] = 1;
-    else if (current[field] === 1) current[field] = -1;
-    else delete current[field];
-    sortState.value = current;
+    if (!(field in current)) {
+      // New sort key: insert at the front so the user's click becomes the
+      // primary sort, with any existing keys (like the default _id:-1)
+      // trailing as tiebreakers.
+      sortState.value = { [field]: 1, ...current };
+    } else if (current[field] === 1) {
+      current[field] = -1;
+      sortState.value = current;
+    } else {
+      delete current[field];
+      sortState.value = current;
+    }
     skip.value = 0;
   }
 
@@ -78,7 +96,7 @@ export function usePipeline() {
   }
 
   function reset() {
-    sortState.value = {};
+    sortState.value = defaultSortState();
     filterState.value = {};
     placeholderValues.value = {};
     skip.value = 0;

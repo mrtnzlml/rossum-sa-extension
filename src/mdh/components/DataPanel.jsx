@@ -16,6 +16,7 @@ import { confirmModal } from './Modal.jsx';
 import { addToHistory } from './QueryHistory.jsx';
 import * as api from '../api.js';
 import * as cache from '../cache.js';
+import { applySortToPipeline, applyFilterDeltaToPipeline, applySkipToPipeline, extractUIStateFromPipeline } from '../pipelineOps.js';
 import JSON5 from 'json5';
 
 const MAX_LIMIT = 500;
@@ -50,6 +51,9 @@ export default function DataPanel() {
   const leftRef = useRef(null);
   const [downloadState, setDownloadState] = useState(null); // null | { count, cancelled }
   const downloadCancelRef = useRef(false);
+  // When switching collections via a saved/recent pipeline, stash the payload
+  // so the collection-change effect can apply it instead of running the default.
+  const pendingLoadRef = useRef(null); // null | { pipelineText, variables }
 
   const collection = selectedCollection.value;
 
@@ -71,6 +75,26 @@ export default function DataPanel() {
   function syncPipelineAndRun() {
     syncPipeline();
     runQuery();
+  }
+
+  // Parse the current editor text, mutate only the stage(s) the caller cares about,
+  // and write back. Preserves any user-written stages (custom $match, $project,
+  // $lookup, etc.) that aren't touched by UI events like sort/filter/pagination.
+  // No-op when the editor holds invalid JSON/JSON5 so the user's WIP isn't discarded.
+  function mutatePipelineText(mutator) {
+    if (!editorRef.current) return;
+    let parsed;
+    try {
+      parsed = JSON5.parse(editorRef.current.getValue());
+      if (!Array.isArray(parsed)) return;
+    } catch {
+      return;
+    }
+    const next = parsed.map((s) => (s && typeof s === 'object' && !Array.isArray(s) ? { ...s } : s));
+    mutator(next);
+    pipeline.suppressSync.value = true;
+    editorRef.current.setValue(JSON.stringify(next, null, 2));
+    setTimeout(() => { pipeline.suppressSync.value = false; }, 600);
   }
 
   async function runQuery() {
@@ -98,6 +122,20 @@ export default function DataPanel() {
     if (cachedCount !== null) pagination.totalCount.value = cachedCount;
     else { pagination.totalCount.value = null; pagination.fetchTotalCount(collection); }
 
+    // A cross-collection pipeline load is pending — apply it instead of the default.
+    const pending = pendingLoadRef.current;
+    if (pending) {
+      pendingLoadRef.current = null;
+      if (pending.variables) pipeline.placeholderValues.value = { ...pending.variables };
+      setTimeout(() => {
+        if (!editorRef.current) return;
+        pipeline.suppressSync.value = true;
+        editorRef.current.setValue(pending.pipelineText);
+        setTimeout(() => { pipeline.suppressSync.value = false; runQuery(); }, 100);
+      }, 50);
+      return;
+    }
+
     const cachedRecords = cache.get(collection, 'records');
     if (cachedRecords !== null) {
       records.value = cachedRecords;
@@ -119,29 +157,43 @@ export default function DataPanel() {
     return extractFieldNames(records.value);
   }
 
+  // Mirror the pipeline text into UI state (column sort arrows, filter chips)
+  // so direct edits to $sort/$match are reflected in the record view. Runs only
+  // after a *valid* parse — invalid intermediate edits leave the last good state
+  // in place instead of flickering.
+  function syncUIStateFromPipeline() {
+    if (!editorRef.current) return;
+    try {
+      const parsed = JSON5.parse(editorRef.current.getValue());
+      const { sorts, filters } = extractUIStateFromPipeline(parsed);
+      pipeline.sortState.value = sorts;
+      pipeline.filterState.value = filters;
+    } catch { /* invalid — keep existing UI state */ }
+  }
+
   function handleEditorChange() {
-    if (!pipeline.suppressSync.value) {
-      pipeline.sortState.value = {};
-      pipeline.filterState.value = {};
-    }
+    // Previously cleared sortState/filterState on every keystroke. No longer
+    // needed: the next valid parse repopulates them from the pipeline text
+    // (see handleValidChange → syncUIStateFromPipeline).
   }
 
   function handleValidChange() {
-    if (!pipeline.suppressSync.value) runQuery();
+    if (!pipeline.suppressSync.value) {
+      syncUIStateFromPipeline();
+      runQuery();
+    }
   }
 
   function handleLoadPipeline(pipelineText, col, variables) {
-    if (variables) pipeline.placeholderValues.value = { ...variables };
     if (col && col !== collection) {
+      // Defer to the [collection] effect — it will apply the pipeline and variables
+      // after reset() instead of racing the default path.
+      pendingLoadRef.current = { pipelineText, variables };
       selectedCollection.value = col;
-      setTimeout(() => {
-        if (editorRef.current) {
-          pipeline.suppressSync.value = true;
-          editorRef.current.setValue(pipelineText);
-          setTimeout(() => { pipeline.suppressSync.value = false; runQuery(); }, 100);
-        }
-      }, 50);
-    } else if (editorRef.current) {
+      return;
+    }
+    if (variables) pipeline.placeholderValues.value = { ...variables };
+    if (editorRef.current) {
       pipeline.suppressSync.value = true;
       editorRef.current.setValue(pipelineText);
       setTimeout(() => { pipeline.suppressSync.value = false; runQuery(); }, 100);
@@ -150,19 +202,30 @@ export default function DataPanel() {
 
   function handleSort(field) {
     pipeline.toggleSort(field);
-    syncPipelineAndRun();
+    mutatePipelineText((p) => {
+      applySortToPipeline(p, pipeline.sortState.value);
+      applySkipToPipeline(p, skip.value); // toggleSort resets skip to 0
+    });
+    runQuery();
   }
 
   function handleFilter(field, value) {
     pipeline.toggleFilter(field, value);
+    const active = field in pipeline.filterState.value;
+    mutatePipelineText((p) => {
+      applyFilterDeltaToPipeline(p, field, value, active);
+      applySkipToPipeline(p, skip.value); // toggleFilter resets skip to 0
+    });
+    runQuery();
+  }
+
+  function handleReset() {
+    pipeline.reset();
     syncPipelineAndRun();
   }
 
   function handleToolbarAction(action) {
-    if (action === 'reset') {
-      pipeline.reset();
-      syncPipelineAndRun();
-    } else if (action === 'download') {
+    if (action === 'download') {
       downloadCollection();
     } else if (action === 'insert') {
       openDataOperations('insert', invalidateAndRun, currentFields);
@@ -313,6 +376,7 @@ export default function DataPanel() {
           onChange={handleEditorChange}
           onValidChange={handleValidChange}
           onLoadPipeline={handleLoadPipeline}
+          onReset={handleReset}
         />
         <PlaceholderInputs
           names={placeholderNames}
@@ -334,7 +398,11 @@ export default function DataPanel() {
           pagination={pagination}
           onSort={handleSort}
           onFilter={handleFilter}
-          onPageChange={(dir) => { dir === 'next' ? pagination.goNext() : pagination.goPrev(); syncPipelineAndRun(); }}
+          onPageChange={(dir) => {
+            dir === 'next' ? pagination.goNext() : pagination.goPrev();
+            mutatePipelineText((p) => applySkipToPipeline(p, skip.value));
+            runQuery();
+          }}
           onEdit={(record) => openRecordEditor('edit', record, invalidateAndRun, currentFields)}
           onDelete={(record, idx) => {
             const deleteId = record._id?.$oid || record._id || '?';

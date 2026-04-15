@@ -1,0 +1,103 @@
+// Pure helpers that mutate an aggregation pipeline array in response to a
+// UI event (sort click, filter toggle, pagination). Unlike a full rebuild,
+// these preserve any stages the user wrote directly in the editor ($match
+// conditions, $project, $lookup, etc.) — only the stage owned by the UI
+// event is inserted, updated, or removed.
+
+function hasKey(stage, key) {
+  return stage && typeof stage === 'object' && key in stage;
+}
+
+function findIndexBy(pipeline, key) {
+  return pipeline.findIndex((s) => hasKey(s, key));
+}
+
+// Apply the UI sort state to an existing pipeline. If `sortSpec` has keys,
+// replace or insert a `$sort` stage; if empty, remove any existing `$sort`.
+export function applySortToPipeline(pipeline, sortSpec) {
+  const sortIdx = findIndexBy(pipeline, '$sort');
+  if (Object.keys(sortSpec).length > 0) {
+    const stage = { $sort: { ...sortSpec } };
+    if (sortIdx >= 0) {
+      pipeline[sortIdx] = stage;
+      return pipeline;
+    }
+    // Insert after the last $match, else before the first $skip/$limit, else at start.
+    let insertAt = -1;
+    for (let i = pipeline.length - 1; i >= 0; i--) {
+      if (hasKey(pipeline[i], '$match')) { insertAt = i + 1; break; }
+    }
+    if (insertAt === -1) {
+      const pagIdx = pipeline.findIndex((s) => hasKey(s, '$skip') || hasKey(s, '$limit'));
+      insertAt = pagIdx >= 0 ? pagIdx : pipeline.length;
+    }
+    pipeline.splice(insertAt, 0, stage);
+  } else if (sortIdx >= 0) {
+    pipeline.splice(sortIdx, 1);
+  }
+  return pipeline;
+}
+
+// Toggle a single filter key in the first `$match` stage. If the filter was
+// just activated, add/overwrite `field: value`; if deactivated, delete that
+// key only. Other keys in `$match` (user-written or other UI filters) remain.
+export function applyFilterDeltaToPipeline(pipeline, field, value, active) {
+  const matchIdx = findIndexBy(pipeline, '$match');
+  if (active) {
+    if (matchIdx >= 0) {
+      pipeline[matchIdx] = { $match: { ...pipeline[matchIdx].$match, [field]: value } };
+    } else {
+      pipeline.unshift({ $match: { [field]: value } });
+    }
+  } else if (matchIdx >= 0) {
+    const next = { ...pipeline[matchIdx].$match };
+    delete next[field];
+    pipeline[matchIdx] = { $match: next };
+  }
+  return pipeline;
+}
+
+// Update or insert a `$skip` stage. When inserting, place it before `$limit`
+// if present so skip/limit pagination semantics are preserved.
+export function applySkipToPipeline(pipeline, skipValue) {
+  const skipIdx = findIndexBy(pipeline, '$skip');
+  if (skipIdx >= 0) {
+    pipeline[skipIdx] = { $skip: skipValue };
+    return pipeline;
+  }
+  const limitIdx = findIndexBy(pipeline, '$limit');
+  if (limitIdx >= 0) pipeline.splice(limitIdx, 0, { $skip: skipValue });
+  else pipeline.push({ $skip: skipValue });
+  return pipeline;
+}
+
+// Reverse direction of the mutators: derive UI state (column sort arrows,
+// filter chips) from a pipeline. Reads the *first* `$sort` and `$match` —
+// subsequent ones (e.g., post-$group filters) remain implicit in the editor.
+// Only primitive-valued `$match` entries become filter chips; operator-valued
+// entries like `{price: {$gt: 10}}` can't be toggled from the UI, so they
+// stay in the pipeline as-is without a chip.
+export function extractUIStateFromPipeline(pipeline) {
+  const sorts = {};
+  const filters = {};
+  if (!Array.isArray(pipeline)) return { sorts, filters };
+
+  const sortStage = pipeline.find((s) => hasKey(s, '$sort'));
+  if (sortStage && sortStage.$sort && typeof sortStage.$sort === 'object') {
+    for (const [k, v] of Object.entries(sortStage.$sort)) {
+      if (v === 1 || v === -1) sorts[k] = v;
+    }
+  }
+
+  const matchStage = pipeline.find((s) => hasKey(s, '$match'));
+  if (matchStage && matchStage.$match && typeof matchStage.$match === 'object') {
+    for (const [k, v] of Object.entries(matchStage.$match)) {
+      // Primitive values only — nested objects/arrays are operator expressions.
+      if (v === null || (typeof v !== 'object' && typeof v !== 'function')) {
+        filters[k] = v;
+      }
+    }
+  }
+
+  return { sorts, filters };
+}

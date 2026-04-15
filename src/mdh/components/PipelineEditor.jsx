@@ -3,15 +3,16 @@ import { useState, useRef, useEffect } from 'preact/hooks';
 import { selectedCollection, records, aiEnabled, aiStatus, error } from '../store.js';
 import { extractFieldNames } from './JsonEditor.jsx';
 import JsonEditor from './JsonEditor.jsx';
-import { HistoryPanel, SavedPanel, saveQuery, unsaveQuery, isSaved } from './QueryHistory.jsx';
+import { LibraryPanel, saveQuery, unsaveQuery, isSaved } from './QueryHistory.jsx';
 import AiInsight from './AiInsight.jsx';
 import * as ai from '../ai.js';
 import JSON5 from 'json5';
 
-export default function PipelineEditor({ editorRef, initialValue, onChange, onValidChange, onLoadPipeline }) {
+export default function PipelineEditor({ editorRef, initialValue, onChange, onValidChange, onLoadPipeline, onReset }) {
   const [savedState, setSavedState] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [showSaved, setShowSaved] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryTab, setLibraryTab] = useState('saved');
+  const [overflowOpen, setOverflowOpen] = useState(false);
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [popupPos, setPopupPos] = useState(null); // { top, left }
   const [validPipeline, setValidPipeline] = useState(() => {
@@ -21,6 +22,16 @@ export default function PipelineEditor({ editorRef, initialValue, onChange, onVa
   const [nlLoading, setNlLoading] = useState(false);
   const saveInputRef = useRef(null);
   const nlInputRef = useRef(null);
+
+  // Close the overflow menu when clicking outside it
+  useEffect(() => {
+    if (!overflowOpen) return;
+    function onClick(e) {
+      if (!e.target.closest('.pipeline-overflow-wrap')) setOverflowOpen(false);
+    }
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, [overflowOpen]);
 
   const fieldsFn = () => extractFieldNames(records.value);
 
@@ -62,8 +73,7 @@ export default function PipelineEditor({ editorRef, initialValue, onChange, onVa
   }
 
   function loadFromPanel(pipeline, collection, variables) {
-    setShowHistory(false);
-    setShowSaved(false);
+    setLibraryOpen(false);
     onLoadPipeline(pipeline, collection, variables);
   }
 
@@ -103,14 +113,38 @@ export default function PipelineEditor({ editorRef, initialValue, onChange, onVa
         <div class="pipeline-header-actions">
           <button
             class={'pipeline-save-btn' + (savedState ? ' pipeline-save-btn-active' : '')}
-            title="Save current query"
+            title={savedState ? 'Remove from saved queries' : 'Save current query'}
             onClick={handleSave}
           >
             {savedState ? '\u2605' : '\u2606'}
           </button>
-          <button class="pipeline-action-btn" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setPopupPos({ top: r.bottom + 4, left: r.left }); setShowSaved(!showSaved); setShowHistory(false); }}>Saved Queries</button>
-          <button class="pipeline-action-btn" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setPopupPos({ top: r.bottom + 4, left: r.left }); setShowHistory(!showHistory); setShowSaved(false); }}>Query History</button>
-          <button class="pipeline-action-btn" onClick={beautify}>Beautify</button>
+          <button
+            class="pipeline-action-btn"
+            title="Open saved queries and query history"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setPopupPos({ top: r.bottom + 4, left: r.left });
+              setLibraryOpen(!libraryOpen);
+              setOverflowOpen(false);
+            }}
+          >Library {'\u25BE'}</button>
+          <button
+            class="pipeline-action-btn"
+            title="Reset sort, filter, and pipeline to the default"
+            onClick={onReset}
+          >Reset</button>
+          <div class="pipeline-overflow-wrap">
+            <button
+              class="pipeline-action-btn pipeline-overflow-btn"
+              title="More actions"
+              onClick={(e) => { e.stopPropagation(); setOverflowOpen(!overflowOpen); setLibraryOpen(false); }}
+            >{'\u22EF'}</button>
+            {overflowOpen && (
+              <div class="toolbar-more-menu">
+                <button class="toolbar-menu-item" onClick={() => { setOverflowOpen(false); beautify(); }}>Beautify</button>
+              </div>
+            )}
+          </div>
         </div>
         {showSaveInput && (
           <div class="pipeline-save-inline">
@@ -119,11 +153,15 @@ export default function PipelineEditor({ editorRef, initialValue, onChange, onVa
           </div>
         )}
       </div>
-      {(showHistory || showSaved) && popupPos && (
-        <div class="query-panel-backdrop" onClick={() => { setShowHistory(false); setShowSaved(false); }}>
+      {libraryOpen && popupPos && (
+        <div class="query-panel-backdrop" onClick={() => setLibraryOpen(false)}>
           <div style={`position:fixed;top:${popupPos.top}px;left:${popupPos.left}px;z-index:1000`} onClick={(e) => e.stopPropagation()}>
-            {showHistory && <HistoryPanel onLoad={loadFromPanel} onDismiss={() => setShowHistory(false)} />}
-            {showSaved && <SavedPanel onLoad={loadFromPanel} onDismiss={() => setShowSaved(false)} />}
+            <LibraryPanel
+              tab={libraryTab}
+              onTabChange={setLibraryTab}
+              onLoad={loadFromPanel}
+              onDismiss={() => setLibraryOpen(false)}
+            />
           </div>
         </div>
       )}

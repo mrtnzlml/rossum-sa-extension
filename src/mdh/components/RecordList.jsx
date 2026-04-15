@@ -63,7 +63,6 @@ export default function RecordList({ records, pipelineText, filterState, sortSta
     <div style="display:flex;flex-direction:column;flex:1;overflow:hidden">
       <div class="toolbar">
         <div class="toolbar-group">
-          <button class="btn btn-sm" onClick={() => onRefresh('reset')}>Reset</button>
           <button class="btn btn-sm" onClick={toggleExpandAll}>{allExpanded ? 'Collapse All' : 'Expand All'}</button>
         </div>
         <div style="flex:1"></div>

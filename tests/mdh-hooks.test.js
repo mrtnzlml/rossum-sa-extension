@@ -31,35 +31,63 @@ beforeEach(() => {
 // ── Pipeline building ──────────────────────────────────────────────
 
 describe('pipeline building (usePipeline)', () => {
-  it('builds empty pipeline from fresh state', () => {
+  it('builds default pipeline with _id:-1 sort from fresh state', () => {
     const hook = renderHook(usePipeline);
+    expect(hook.sortIndicator('_id')).toBe(' ↓'); // default indicator is visible
+    expect(hook.buildPipelineFromUI()).toEqual([
+      { $match: {} },
+      { $sort: { _id: -1 } },
+      { $skip: 0 },
+    ]);
+  });
+
+  it('new sort key inserts at the front so it becomes the primary sort', () => {
+    const hook = renderHook(usePipeline);
+
+    hook.toggleSort('name');
+    expect(hook.sortIndicator('name')).toBe(' ↑');
+    expect(hook.sortIndicator('_id')).toBe(' ↓'); // _id stays as tiebreaker
+    // Object key order matters for MongoDB $sort — name must come first.
+    expect(Object.keys(hook.buildPipelineFromUI()[1].$sort)).toEqual(['name', '_id']);
+    expect(hook.buildPipelineFromUI()[1]).toEqual({ $sort: { name: 1, _id: -1 } });
+
+    hook.toggleSort('name');
+    expect(hook.sortIndicator('name')).toBe(' ↓');
+    expect(hook.buildPipelineFromUI()[1]).toEqual({ $sort: { name: -1, _id: -1 } });
+
+    hook.toggleSort('name');
+    expect(hook.sortIndicator('name')).toBe('');
+    expect(hook.buildPipelineFromUI()[1]).toEqual({ $sort: { _id: -1 } });
+  });
+
+  it('cycles _id from default: -1 → off → +1 → -1', () => {
+    const hook = renderHook(usePipeline);
+    expect(hook.sortIndicator('_id')).toBe(' ↓'); // default
+    hook.toggleSort('_id');
+    expect(hook.sortIndicator('_id')).toBe(''); // cleared
+    hook.toggleSort('_id');
+    expect(hook.sortIndicator('_id')).toBe(' ↑'); // asc
+    hook.toggleSort('_id');
+    expect(hook.sortIndicator('_id')).toBe(' ↓'); // desc
+  });
+
+  it('clearing all sort keys omits the $sort stage entirely', () => {
+    const hook = renderHook(usePipeline);
+    hook.toggleSort('_id'); // removes _id from the default sortState
     expect(hook.buildPipelineFromUI()).toEqual([
       { $match: {} },
       { $skip: 0 },
     ]);
   });
 
-  it('sort toggles cycle: asc → desc → removed', () => {
+  it('reset restores the default _id:-1 sort', () => {
     const hook = renderHook(usePipeline);
-
-    hook.toggleSort('name');
-    expect(hook.sortIndicator('name')).toBe(' ↑');
-    expect(hook.buildPipelineFromUI()).toEqual([
-      { $match: {} },
-      { $sort: { name: 1 } },
-      { $skip: 0 },
-    ]);
-
-    hook.toggleSort('name');
-    expect(hook.sortIndicator('name')).toBe(' ↓');
-    expect(hook.buildPipelineFromUI()[1]).toEqual({ $sort: { name: -1 } });
-
-    hook.toggleSort('name');
-    expect(hook.sortIndicator('name')).toBe('');
-    expect(hook.buildPipelineFromUI()).toEqual([
-      { $match: {} },
-      { $skip: 0 },
-    ]);
+    hook.toggleSort('price');
+    hook.toggleSort('_id'); // clears _id from the default; sortState = { price: 1 }
+    hook.reset();
+    expect(hook.sortIndicator('_id')).toBe(' ↓');
+    expect(hook.sortIndicator('price')).toBe('');
+    expect(hook.buildPipelineFromUI()[1]).toEqual({ $sort: { _id: -1 } });
   });
 
   it('filter toggle adds/removes $match conditions', () => {

@@ -78,7 +78,7 @@ describe('full data exploration flow', () => {
     const sortedPipeline = hooks.pipeline.buildPipelineFromUI();
     expect(sortedPipeline).toEqual([
       { $match: {} },
-      { $sort: { price: -1 } },
+      { $sort: { price: -1, _id: -1 } }, // price primary, _id:-1 default acts as tiebreaker
       { $skip: 0 },
     ]);
 
@@ -92,7 +92,7 @@ describe('full data exploration flow', () => {
 
     const filteredPipeline = hooks.pipeline.buildPipelineFromUI();
     expect(filteredPipeline[0].$match).toEqual({ category: 'A' });
-    expect(filteredPipeline[1]).toEqual({ $sort: { price: -1 } }); // sort preserved
+    expect(filteredPipeline[1]).toEqual({ $sort: { price: -1, _id: -1 } }); // user sort + default _id tiebreaker
 
     api.aggregate.mockResolvedValueOnce({ result: page1Filtered });
     await hooks.query.runQuery('products', JSON.stringify(filteredPipeline));

@@ -64,7 +64,7 @@ function QueryRow({ item, currentCollection, savedName, onLoad, onDismiss, showU
   );
 }
 
-export function HistoryPanel({ onLoad, onDismiss }) {
+function HistoryList({ onLoad, onDismiss }) {
   const [items, setItems] = useState([]);
   const currentCollection = selectedCollection.value;
 
@@ -73,21 +73,19 @@ export function HistoryPanel({ onLoad, onDismiss }) {
   }, []);
 
   if (items.length === 0) {
-    return <div class="query-history-panel"><div class="query-history-list"><div class="query-history-empty">No query history yet</div></div></div>;
+    return <div class="query-history-list"><div class="query-history-empty">No query history yet</div></div>;
   }
 
   return (
-    <div class="query-history-panel">
-      <div class="query-history-list">
-        {items.map((item) => (
-          <QueryRow item={item} currentCollection={currentCollection} onLoad={onLoad} onDismiss={onDismiss} />
-        ))}
-      </div>
+    <div class="query-history-list">
+      {items.map((item) => (
+        <QueryRow item={item} currentCollection={currentCollection} onLoad={onLoad} onDismiss={onDismiss} />
+      ))}
     </div>
   );
 }
 
-export function SavedPanel({ onLoad, onDismiss }) {
+function SavedList({ onLoad, onDismiss }) {
   const [items, setItems] = useState([]);
   const currentCollection = selectedCollection.value;
 
@@ -104,16 +102,34 @@ export function SavedPanel({ onLoad, onDismiss }) {
   }
 
   if (items.length === 0) {
-    return <div class="query-history-panel"><div class="query-history-list"><div class="query-history-empty">No saved queries</div></div></div>;
+    return <div class="query-history-list"><div class="query-history-empty">No saved queries</div></div>;
   }
 
   return (
+    <div class="query-history-list">
+      {items.map((item) => (
+        <QueryRow item={item} currentCollection={currentCollection} savedName={item.name} onLoad={onLoad} onDismiss={onDismiss} showUnsave onUnsave={handleUnsave} />
+      ))}
+    </div>
+  );
+}
+
+export function LibraryPanel({ tab, onTabChange, onLoad, onDismiss }) {
+  return (
     <div class="query-history-panel">
-      <div class="query-history-list">
-        {items.map((item) => (
-          <QueryRow item={item} currentCollection={currentCollection} savedName={item.name} onLoad={onLoad} onDismiss={onDismiss} showUnsave onUnsave={handleUnsave} />
-        ))}
+      <div class="library-tabs">
+        <button
+          class={'library-tab' + (tab === 'saved' ? ' library-tab-active' : '')}
+          onClick={() => onTabChange('saved')}
+        >Saved</button>
+        <button
+          class={'library-tab' + (tab === 'recent' ? ' library-tab-active' : '')}
+          onClick={() => onTabChange('recent')}
+        >Recent</button>
       </div>
+      {tab === 'saved'
+        ? <SavedList onLoad={onLoad} onDismiss={onDismiss} />
+        : <HistoryList onLoad={onLoad} onDismiss={onDismiss} />}
     </div>
   );
 }
