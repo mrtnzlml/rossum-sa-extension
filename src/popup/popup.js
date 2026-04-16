@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const url = tab.url || '';
   const isRossum = /localhost:3000|\.rossum\.(ai|app)|\.r8\.lol/.test(url);
   const isNetsuite = /\.netsuite\.com\/app/.test(url);
-  const isCoupa = /\.coupacloud\.com/.test(url);
+  const isCoupa = /\.coupa(cloud|host)\.com/.test(url);
   function dimContext(name) {
     for (const el of document.querySelectorAll(`[data-context="${name}"]`)) {
       el.classList.add('dimmed');
