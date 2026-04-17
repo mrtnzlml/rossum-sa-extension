@@ -235,6 +235,13 @@ export default function JsonEditor({ value = '', onChange, onValidChange, mode =
     const view = new EditorView({ state, parent: containerRef.current });
     viewRef.current = view;
 
+    const swallowFind = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) {
+        e.stopPropagation();
+      }
+    };
+    view.dom.addEventListener('keydown', swallowFind, true);
+
     // Initial validation
     const text = value.trim();
     if (text) {
@@ -245,6 +252,7 @@ export default function JsonEditor({ value = '', onChange, onValidChange, mode =
 
     return () => {
       clearTimeout(validChangeTimer);
+      view.dom.removeEventListener('keydown', swallowFind, true);
       view.destroy();
     };
   }, []);

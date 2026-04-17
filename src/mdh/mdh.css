@@ -1314,6 +1314,8 @@ body {
 
 /* ── Uploads table ─────────────────────────────── */
 
+.uploads-panel { background: var(--bg-card); }
+
 .uploads-stats {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   padding: 8px 12px; font-size: 11px;
@@ -1426,7 +1428,7 @@ body {
 
 .uploads-row-failed .uploads-group-count { background: rgba(239, 68, 68, 0.18); color: var(--danger); }
 
-.uploads-row-sub td { background: var(--bg-code); }
+.uploads-row-sub td { background: color-mix(in srgb, var(--bg-code) 35%, var(--bg-card)); }
 .uploads-row-sub td:first-child { box-shadow: inset 2px 0 0 var(--border); }
 .uploads-row-failed .uploads-row-sub td { background: rgba(239, 68, 68, 0.03); }
 .uploads-row-failed .uploads-row-sub td:first-child { box-shadow: inset 2px 0 0 rgba(239, 68, 68, 0.35); }
@@ -1491,7 +1493,7 @@ body {
 .uploads-table th:last-child,
 .uploads-table td:last-child { padding-right: 12px; }
 
-.uploads-table tbody:hover tr { background: var(--bg-hover); }
+.uploads-table tbody:hover tr { background: color-mix(in srgb, var(--bg-hover) 35%, var(--bg-card)); }
 
 .uploads-cell-dataset {
   max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

@@ -525,7 +525,7 @@ export default function UploadsPanel() {
   const showCountLabel = `${filtered.length} ops in ${groups.length} ${groups.length === 1 ? 'group' : 'groups'}`;
 
   return (
-    <div class="panel">
+    <div class="panel uploads-panel">
       <div class="uploads-stats">
         <button
           class={'uploads-stat-chip' + (statusFilter === 'All' ? ' active' : '')}
