@@ -24,9 +24,10 @@ export async function loadOperations() {
 }
 
 const PAGE_SIZE = 100;
-const GROUP_WINDOW_MS = 60 * 60 * 1000; // 1 hour
-const SPARK_WINDOW_HOURS = 24;
-const SPARK_BUCKET_MS = 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const GROUP_WINDOW_MS = HOUR_MS;
+const SPARK_BUCKET_COUNT = 24;
 
 function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -106,30 +107,72 @@ function jumpToDataset(name) {
   activePanel.value = 'data';
 }
 
-function bucketActivity(ops) {
+function pickActivityRange(ops) {
+  let maxT = 0;
+  let minT = Infinity;
+  for (const op of ops) {
+    const t = op.created ? Date.parse(op.created) : 0;
+    if (!t) continue;
+    if (t > maxT) maxT = t;
+    if (t < minT) minT = t;
+  }
+  if (!maxT) return null;
   const now = Date.now();
-  const start = now - SPARK_WINDOW_HOURS * SPARK_BUCKET_MS;
-  const out = Array.from({ length: SPARK_WINDOW_HOURS }, (_, i) => ({
-    start: start + i * SPARK_BUCKET_MS,
+  const age = now - maxT;
+  if (age < DAY_MS) {
+    return { tier: 'hour', bucketMs: HOUR_MS, count: 24, start: now - 24 * HOUR_MS, label: 'last 24h' };
+  }
+  if (age < 7 * DAY_MS) {
+    return { tier: 'day', bucketMs: DAY_MS, count: 7, start: now - 7 * DAY_MS, label: 'last 7d' };
+  }
+  if (age < 30 * DAY_MS) {
+    return { tier: 'day', bucketMs: DAY_MS, count: 30, start: now - 30 * DAY_MS, label: 'last 30d' };
+  }
+  const span = Math.max(DAY_MS, maxT - minT);
+  const raw = Math.ceil(span / SPARK_BUCKET_COUNT);
+  let bucketMs = raw;
+  if (raw >= 30 * DAY_MS) bucketMs = Math.ceil(raw / (30 * DAY_MS)) * 30 * DAY_MS;
+  else if (raw >= 7 * DAY_MS) bucketMs = Math.ceil(raw / (7 * DAY_MS)) * 7 * DAY_MS;
+  else if (raw >= DAY_MS) bucketMs = Math.ceil(raw / DAY_MS) * DAY_MS;
+  return { tier: 'span', bucketMs, count: SPARK_BUCKET_COUNT, start: minT, label: 'all time' };
+}
+
+function bucketActivity(ops) {
+  const range = pickActivityRange(ops);
+  if (!range) return { buckets: [], range: null };
+  const { bucketMs, count, start } = range;
+  const buckets = Array.from({ length: count }, (_, i) => ({
+    start: start + i * bucketMs,
     success: 0, failed: 0, running: 0,
   }));
   for (const op of ops) {
     const t = op.created ? Date.parse(op.created) : 0;
     if (!t || t < start) continue;
-    const idx = Math.min(SPARK_WINDOW_HOURS - 1, Math.floor((t - start) / SPARK_BUCKET_MS));
+    const idx = Math.floor((t - start) / bucketMs);
+    if (idx < 0 || idx >= count) continue;
     const s = (op.status || '').toUpperCase();
-    if (s === 'FINISHED') out[idx].success++;
-    else if (s === 'FAILED') out[idx].failed++;
-    else out[idx].running++;
+    if (s === 'FINISHED') buckets[idx].success++;
+    else if (s === 'FAILED') buckets[idx].failed++;
+    else buckets[idx].running++;
   }
-  return out;
+  return { buckets, range };
 }
 
-function formatBucketTooltip(b) {
+function formatBucketTooltip(b, range) {
   const d = new Date(b.start);
-  const hFrom = String(d.getHours()).padStart(2, '0');
-  const hTo = String((d.getHours() + 1) % 24).padStart(2, '0');
-  const parts = [`${hFrom}:00\u2013${hTo}:00`];
+  let timeLabel;
+  if (range.tier === 'hour') {
+    const hFrom = String(d.getHours()).padStart(2, '0');
+    const hTo = String((d.getHours() + 1) % 24).padStart(2, '0');
+    timeLabel = `${hFrom}:00\u2013${hTo}:00`;
+  } else if (range.tier === 'day' || range.bucketMs <= DAY_MS) {
+    timeLabel = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } else {
+    const end = new Date(b.start + range.bucketMs - 1);
+    const fmt = (x) => x.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' });
+    timeLabel = `${fmt(d)}\u2013${fmt(end)}`;
+  }
+  const parts = [timeLabel];
   if (b.success) parts.push(`${b.success} finished`);
   if (b.failed) parts.push(`${b.failed} failed`);
   if (b.running) parts.push(`${b.running} running`);
@@ -137,21 +180,22 @@ function formatBucketTooltip(b) {
   return parts.join(' \u00b7 ');
 }
 
-function ActivitySparkline({ buckets }) {
+function ActivitySparkline({ buckets, range }) {
+  if (!buckets.length || !range) return null;
   const max = Math.max(1, ...buckets.map((b) => b.success + b.failed + b.running));
   const W = 192, H = 28, GAP = 1;
   const barW = (W - (buckets.length - 1) * GAP) / buckets.length;
   const [hover, setHover] = useState(null);
 
   return (
-    <div class="uploads-sparkline-host" onMouseLeave={() => setHover(null)}>
+    <div class="uploads-sparkline-host" onMouseLeave={() => setHover(null)} title={`Activity \u00b7 ${range.label}`}>
       <svg
         class="uploads-sparkline"
         width={W}
         height={H}
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={`Activity over the last ${SPARK_WINDOW_HOURS} hours`}
+        aria-label={`Activity over ${range.label}`}
       >
         {buckets.map((b, i) => {
           const total = b.success + b.failed + b.running;
@@ -181,7 +225,7 @@ function ActivitySparkline({ buckets }) {
           class="uploads-sparkline-tip"
           style={`left:${hover * (barW + GAP) + barW / 2}px`}
         >
-          {formatBucketTooltip(buckets[hover])}
+          {formatBucketTooltip(buckets[hover], range)}
         </div>
       )}
     </div>
@@ -326,7 +370,7 @@ export default function UploadsPanel() {
     [allOperations, statusFilter, search],
   );
 
-  const buckets = useMemo(() => bucketActivity(allOperations), [allOperations]);
+  const { buckets, range: bucketRange } = useMemo(() => bucketActivity(allOperations), [allOperations]);
 
   const pendingVisibleCount = useMemo(() => {
     if (!pending?.changedOps?.length) return 0;
@@ -502,9 +546,9 @@ export default function UploadsPanel() {
         {stats.successRate !== null && (
           <span class="uploads-success-rate"><FlashOnChange value={`${stats.successRate}% success`} /></span>
         )}
-        {allOperations.length > 0 && (
+        {allOperations.length > 0 && bucketRange && (
           <div class="uploads-sparkline-wrap">
-            <ActivitySparkline buckets={buckets} />
+            <ActivitySparkline buckets={buckets} range={bucketRange} />
           </div>
         )}
         <span style="flex:1" />

@@ -86,32 +86,15 @@ function formatDate(d) {
   try { return new Date(s).toISOString().split('T')[0]; } catch { return String(s); }
 }
 
-// ── Visual helpers ──────────────────────────────
-
-function HealthRing({ score }) {
-  const size = 80;
-  const strokeWidth = 6;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const hasScore = score !== null && score !== undefined;
-  const offset = hasScore ? circumference - (score / 100) * circumference : circumference;
-  const color = hasScore ? healthColor(score) : 'var(--text-secondary)';
-  return (
-    <svg width={size} height={size} class="stats-health-ring" viewBox={`0 0 ${size} ${size}`}>
-      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--border)" stroke-width={strokeWidth} />
-      {hasScore && (
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={color} stroke-width={strokeWidth}
-          stroke-dasharray={circumference} stroke-dashoffset={offset}
-          stroke-linecap="round" transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          class="stats-health-ring-arc" />
-      )}
-      <text x="50%" y="50%" text-anchor="middle" dominant-baseline="central"
-        fill={color} class="stats-health-ring-text">{hasScore ? score : '?'}</text>
-    </svg>
-  );
+function formatBytes(n) {
+  if (n == null) return '\u2014';
+  if (n < 1024) return `${Math.round(n)} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MiB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
 }
 
-
+// ── Visual helpers ──────────────────────────────
 
 function toTimestamp(d) {
   if (!d) return null;
@@ -164,6 +147,8 @@ export default function StatsPanel() {
   const [numericStats, setNumericStats] = useState(null);
   const [dateRanges, setDateRanges] = useState(null);
   const [schemaShapes, setSchemaShapes] = useState(null);
+  const [storage, setStorage] = useState(null);
+  const [docSize, setDocSize] = useState(null);
   const [fields, setFields] = useState([]);
   const [statuses, setStatuses] = useState({});
   const [discovering, setDiscovering] = useState(false);
@@ -190,6 +175,8 @@ export default function StatsPanel() {
     setNumericStats(null);
     setDateRanges(null);
     setSchemaShapes(null);
+    setStorage(null);
+    setDocSize(null);
     setFields([]);
     setStatuses({});
     setDiscovering(true);
@@ -233,7 +220,7 @@ export default function StatsPanel() {
         } else {
           const countRes = await api.aggregate(collection, buildOverviewPipeline());
           if (runId !== runIdRef.current) return;
-          totalDocs = countRes.result?.[0]?.total ?? 0;
+          totalDocs = countRes.result?.[0]?.count ?? 0;
           cache.set(collection, 'totalCount', totalDocs);
         }
         setOverview({ total: totalDocs, fieldCount: discoveredFields.length });
@@ -287,6 +274,28 @@ export default function StatsPanel() {
             return { field: f, count: s.count, earliest: s.earliest, latest: s.latest };
           }).filter(Boolean));
         },
+        storage: (res) => {
+          const s = res.result?.[0]?.storageStats;
+          if (!s) { setStorage(null); return; }
+          setStorage({
+            size: s.size,
+            storageSize: s.storageSize,
+            freeStorageSize: s.freeStorageSize,
+            avgObjSize: s.avgObjSize,
+            count: s.count,
+          });
+        },
+        docSize: (res) => {
+          const r = res.result?.[0];
+          if (!r) { setDocSize(null); return; }
+          setDocSize({
+            count: r.count,
+            avg: r.avgSize,
+            min: r.minSize,
+            max: r.maxSize,
+            total: r.totalSize,
+          });
+        },
       };
 
       for (const key of STATS_CHECKS) setStatus(key, 'loading');
@@ -334,7 +343,7 @@ export default function StatsPanel() {
     return true;
   };
 
-  const allKeys = [...SECTION_ORDER, 'empties', 'types'];
+  const allKeys = [...SECTION_ORDER, 'empties', 'types', 'storage', 'docSize'];
   const doneCount = allKeys.filter((k) => resolved(k)).length;
   const totalChecks = allKeys.length;
   const allDone = doneCount === totalChecks && !discovering;
@@ -394,15 +403,25 @@ export default function StatsPanel() {
                 </div>
               )}
               <div class="stats-overview-grid">
-                <div
-                  class="stats-overview-card stats-health-card"
-                  style={{ borderColor: health !== null ? healthColor(health) : 'var(--border)' }}
-                >
-                  <HealthRing score={health} />
-                  <div class="stats-overview-label">
-                    {health !== null ? `Health \u2014 ${healthLabel(health)}` : 'Health \u2014 calculating\u2026'}
-                  </div>
-                </div>
+                {(() => {
+                  const tone = health !== null ? healthColor(health) : 'var(--text-secondary)';
+                  const cardStyle = health !== null
+                    ? {
+                        borderColor: `color-mix(in srgb, ${tone} 60%, transparent)`,
+                        borderWidth: '2px',
+                        background: `color-mix(in srgb, ${tone} 12%, var(--bg-base))`,
+                      }
+                    : { borderColor: 'var(--border)' };
+                  return (
+                    <div class="stats-overview-card" style={cardStyle}>
+                      <div class="stats-metric-value" style={{ color: tone }}>
+                        {health !== null ? health : '?'}
+                      </div>
+                      <div class="stats-metric-label" style={health !== null ? { color: tone, fontWeight: 600 } : null}>Health</div>
+                      <div class="stats-metric-sub">{health !== null ? healthLabel(health) : `calculating${'\u2026'}`}</div>
+                    </div>
+                  );
+                })()}
                 <div class="stats-overview-card">
                   <div class="stats-metric-value">{overview.total.toLocaleString()}</div>
                   <div class="stats-metric-label">Documents</div>
@@ -411,6 +430,20 @@ export default function StatsPanel() {
                   <div class="stats-metric-value">{overview.fieldCount}</div>
                   <div class="stats-metric-label">Fields</div>
                 </div>
+                {storage && (
+                  <div class="stats-overview-card" title={`Logical: ${formatBytes(storage.size)} \u00b7 Free: ${formatBytes(storage.freeStorageSize)}`}>
+                    <div class="stats-metric-value">{formatBytes(storage.storageSize)}</div>
+                    <div class="stats-metric-label">On disk</div>
+                    <div class="stats-metric-sub">{formatBytes(storage.size)} logical</div>
+                  </div>
+                )}
+                {docSize && (
+                  <div class="stats-overview-card" title={`Total BSON: ${formatBytes(docSize.total)}`}>
+                    <div class="stats-metric-value">{formatBytes(docSize.avg)}</div>
+                    <div class="stats-metric-label">Avg doc</div>
+                    <div class="stats-metric-sub">{formatBytes(docSize.min)}{'\u2013'}{formatBytes(docSize.max)}</div>
+                  </div>
+                )}
               </div>
             </Section>
           );

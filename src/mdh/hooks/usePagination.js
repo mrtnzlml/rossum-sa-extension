@@ -14,9 +14,9 @@ export function usePagination() {
       return cached;
     }
     try {
-      const res = await api.aggregate(collection, [{ $count: 'total' }]);
+      const res = await api.aggregate(collection, [{ $collStats: { count: {} } }, { $limit: 1 }]);
       if (selectedCollection.value !== collection) return null;
-      const count = res.result?.[0]?.total ?? 0;
+      const count = res.result?.[0]?.count ?? 0;
       totalCount.value = count;
       cache.set(collection, 'totalCount', count);
       return count;

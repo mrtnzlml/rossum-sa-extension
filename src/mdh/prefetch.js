@@ -26,9 +26,13 @@ async function prefetchRecords(collection, signal) {
 async function prefetchTotalCount(collection, signal) {
   if (cache.get(collection, 'totalCount') !== null) return;
   try {
-    const res = await api.aggregate(collection, [{ $count: 'total' }], { signal });
+    const res = await api.aggregate(
+      collection,
+      [{ $collStats: { count: {} } }, { $limit: 1 }],
+      { signal },
+    );
     if (signal?.aborted) return;
-    cache.set(collection, 'totalCount', res.result?.[0]?.total ?? 0);
+    cache.set(collection, 'totalCount', res.result?.[0]?.count ?? 0);
   } catch (err) { if (!isAbort(err)) { /* silent */ } }
 }
 

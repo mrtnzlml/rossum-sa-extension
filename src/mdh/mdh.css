@@ -1777,7 +1777,7 @@ tbody.uploads-row-failed tr { background: rgba(239, 68, 68, 0.04); }
 /* Overview */
 
 .stats-overview-grid {
-  display: flex; gap: 12px; align-items: stretch;
+  display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap;
 }
 
 .stats-overview-card {
@@ -1785,15 +1785,6 @@ tbody.uploads-row-failed tr { background: rgba(239, 68, 68, 0.04); }
   border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--bg-base);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-}
-
-.stats-health-card {
-  border-width: 2px; flex: 0 0 auto;
-}
-
-.stats-overview-label {
-  font-size: 11px; color: var(--text-secondary);
-  margin-top: 2px;
 }
 
 .stats-metric-value {
@@ -1804,6 +1795,12 @@ tbody.uploads-row-failed tr { background: rgba(239, 68, 68, 0.04); }
 .stats-metric-label {
   font-size: 10px; color: var(--text-secondary);
   margin-top: 2px;
+}
+
+.stats-metric-sub {
+  font-size: 10px; color: var(--text-secondary);
+  font-family: var(--font-mono);
+  margin-top: 2px; opacity: 0.8;
 }
 
 /* Tables */
@@ -1964,9 +1961,6 @@ tbody.uploads-row-failed tr { background: rgba(239, 68, 68, 0.04); }
 }
 
 /* Health ring */
-.stats-health-ring { display: block; margin: 0 auto 4px; }
-.stats-health-ring-arc { transition: stroke-dashoffset 0.6s ease-out; }
-.stats-health-ring-text { font-family: var(--font-mono); font-size: 22px; font-weight: 700; }
 
 /* Coverage bars */
 .stats-coverage-cell { position: relative; }

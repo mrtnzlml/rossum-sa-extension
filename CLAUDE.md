@@ -83,6 +83,20 @@ Detects current site (Rossum/NetSuite/Coupa) and dims irrelevant sections. Two t
 - All features gated behind chrome.storage.local toggles controlled via popup
 - Rossum entry point builds handlers array from enabled settings — disabled features add zero overhead
 - NetSuite and Coupa content scripts are self-contained single files (no MutationObserver pattern)
+
+## JSX escape sequences
+
+Unicode escapes (`\uXXXX`) DO NOT work in JSX raw text children or JSX attribute values — they render as the six literal characters `\u2013`, not as the intended glyph. This is because JSX text is parsed as HTML-like content, not as a JS string literal.
+
+Three safe ways to render unicode glyphs in JSX:
+
+1. **Wrap in a JS expression:** `{'\u2013'}` (the braces make it a JS string literal).
+2. **Use the literal character directly:** `–` (paste the actual character into the source).
+3. **Use an HTML entity** in text children: `&ndash;` (works in JSX text but not in attributes).
+
+What DOES work: `\uXXXX` inside template literals and regular strings (`const label = 'foo \u2013 bar'`), inside `title=` attributes when the whole value is an expression (`title={\`foo \u2013 bar\`}`), and inside `style` strings.
+
+Common offenders: en-dash `\u2013` / em-dash `\u2014`, ellipsis `\u2026`, arrows `\u2192`, chevrons `\u25BE` / `\u25B6`, checkmarks `\u2713`. When mixing with expressions (e.g., `{a}\u2013{b}`), the escape gets rendered literally — write `{a}{'\u2013'}{b}` instead.
 ## Versioning
 
 Fully automated via `build.js` — no manual version bumping. At build time:

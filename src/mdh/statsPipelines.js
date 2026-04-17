@@ -38,7 +38,27 @@ export function discoverFields(docs) {
 }
 
 export function buildOverviewPipeline() {
-  return [{ $count: 'total' }];
+  return [{ $collStats: { count: {} } }, { $project: { host: 0, localTime: 0 } }, { $limit: 1 }];
+}
+
+export function buildStoragePipeline() {
+  return [{ $collStats: { storageStats: { scale: 1 } } }, { $project: { host: 0, localTime: 0, 'storageStats.wiredTiger': 0, 'storageStats.indexDetails': 0 } }, { $limit: 1 }];
+}
+
+export function buildDocSizePipeline() {
+  return [
+    {
+      $group: {
+        _id: null,
+        count: { $sum: 1 },
+        avgSize: { $avg: { $bsonSize: '$$ROOT' } },
+        minSize: { $min: { $bsonSize: '$$ROOT' } },
+        maxSize: { $max: { $bsonSize: '$$ROOT' } },
+        totalSize: { $sum: { $bsonSize: '$$ROOT' } },
+      },
+    },
+    { $limit: 1 },
+  ];
 }
 
 export function buildFieldCoveragePipeline(fields) {
@@ -195,6 +215,7 @@ export function buildSchemaConsistencyPipeline() {
 export const STATS_CHECKS = [
   'coverage', 'empties', 'types', 'distribution',
   'cardinality', 'strings', 'numeric', 'dates', 'schema',
+  'storage', 'docSize',
 ];
 
 export function buildAllPipelines(fields) {
@@ -208,5 +229,7 @@ export function buildAllPipelines(fields) {
     numeric: buildNumericStatsPipeline(fields),
     dates: buildDateRangePipeline(fields),
     schema: buildSchemaConsistencyPipeline(),
+    storage: buildStoragePipeline(),
+    docSize: buildDocSizePipeline(),
   };
 }
