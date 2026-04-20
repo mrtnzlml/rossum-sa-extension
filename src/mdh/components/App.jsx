@@ -12,6 +12,7 @@ import IndexPanel from './IndexPanel.jsx';
 import SearchIndexPanel from './SearchIndexPanel.jsx';
 import StatsPanel from './StatsPanel.jsx';
 import UploadsPanel from './UploadsPanel.jsx';
+import OverviewPanel from './OverviewPanel.jsx';
 
 export default function App({ connected }) {
   return (
@@ -26,6 +27,10 @@ export default function App({ connected }) {
         {activeView.value === 'operations' ? (
           <div class="main-content">
             <UploadsPanel />
+          </div>
+        ) : activeView.value === 'overview' ? (
+          <div class="main-content">
+            <OverviewPanel />
           </div>
         ) : selectedCollection.value ? (
           <div class="main-content">

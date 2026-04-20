@@ -2018,3 +2018,78 @@ tbody.uploads-row-failed tr { background: rgba(239, 68, 68, 0.04); }
 .stats-timeline-axis span {
   font-family: var(--font-mono); font-size: 9px; color: var(--text-secondary);
 }
+
+/* Overview (All Collections) panel */
+.stats-overview-table {
+  table-layout: fixed;
+  width: 100%;
+}
+.stats-overview-table td:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stats-overview-table th.stats-sortable {
+  cursor: pointer; user-select: none;
+}
+.stats-overview-table th.stats-sortable:hover {
+  color: var(--text-primary);
+}
+.stats-overview-table th.stats-num,
+.stats-overview-table td.stats-num {
+  text-align: right;
+}
+.stats-sort-arrow {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--accent);
+  vertical-align: middle;
+  transform: translateY(-1px);
+}
+.stats-overview-table tr.stats-clickable { cursor: pointer; }
+.stats-overview-table tr.stats-clickable:hover td {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.stats-row-loading {
+  text-align: center; color: var(--text-secondary);
+}
+.stats-skeleton {
+  display: inline-block;
+  height: 10px;
+  border-radius: 3px;
+  vertical-align: middle;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--text-secondary) 12%, transparent) 0%,
+      color-mix(in srgb, var(--text-secondary) 28%, transparent) 50%,
+      color-mix(in srgb, var(--text-secondary) 12%, transparent) 100%
+    );
+  background-size: 200% 100%;
+  animation: stats-skeleton-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes stats-skeleton-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+.stats-row-error {
+  color: var(--danger); font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; max-width: 400px;
+}
+.stats-overview-table tfoot td {
+  border-top: 2px solid var(--border);
+  border-bottom: none;
+  background: var(--bg-hover);
+  font-size: 11px;
+}
+/* Right-aligned numeric cells: bar grows from the right so it "points" at
+   the value rather than being disconnected on the opposite side. */
+.stats-overview-table td.stats-num.stats-coverage-cell .stats-coverage-bar {
+  left: auto;
+  right: 0;
+}
+.stats-overview-table td.stats-num.stats-coverage-cell .stats-coverage-bar {
+  opacity: 0.18;
+}
+

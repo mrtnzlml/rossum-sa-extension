@@ -111,8 +111,8 @@ async function boot() {
   store.token.value = mdhToken;
   api.init(mdhDomain, mdhToken);
 
-  if (stored.mdhActiveView === 'operations') {
-    store.activeView.value = 'operations';
+  if (stored.mdhActiveView === 'operations' || stored.mdhActiveView === 'overview') {
+    store.activeView.value = stored.mdhActiveView;
   }
   if (stored.mdhSelectedCollection) {
     store.selectedCollection.value = stored.mdhSelectedCollection;

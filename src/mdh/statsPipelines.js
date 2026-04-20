@@ -45,6 +45,32 @@ export function buildStoragePipeline() {
   return [{ $collStats: { storageStats: { scale: 1 } } }, { $project: { host: 0, localTime: 0, 'storageStats.wiredTiger': 0, 'storageStats.indexDetails': 0 } }, { $limit: 1 }];
 }
 
+// Batched storage stats across many collections in a single aggregate call.
+// The outer pipeline runs against names[0]; each subsequent name is added via
+// $unionWith. Each row carries the collection name in `_coll` so callers can
+// split the result back per collection.
+export function buildBatchStoragePipeline(names) {
+  const project = { host: 0, localTime: 0, 'storageStats.wiredTiger': 0, 'storageStats.indexDetails': 0 };
+  const pipeline = [
+    { $collStats: { storageStats: { scale: 1 } } },
+    { $project: project },
+    { $addFields: { _coll: names[0] } },
+  ];
+  for (let i = 1; i < names.length; i++) {
+    pipeline.push({
+      $unionWith: {
+        coll: names[i],
+        pipeline: [
+          { $collStats: { storageStats: { scale: 1 } } },
+          { $project: project },
+          { $addFields: { _coll: names[i] } },
+        ],
+      },
+    });
+  }
+  return pipeline;
+}
+
 export function buildDocSizePipeline() {
   return [
     {
