@@ -1,10 +1,12 @@
 import { h } from 'preact';
 import { useEffect } from 'preact/hooks';
-import { collections, selectedCollection, activeView, loading, error, aiEnabled, aiStatus, aiDownloadProgress } from '../store.js';
-import { confirmModal, promptModal, closeModal } from './Modal.jsx';
+import { collections, selectedCollection, activeView, loading, error } from '../store.js';
+import { confirmModal, promptModal, closeModal, openModal } from './Modal.jsx';
 import * as api from '../api.js';
 import * as cache from '../cache.js';
 import * as ai from '../ai.js';
+import { FEATURES } from '../featurePreview/registry.js';
+import FeaturePreviewModal from './FeaturePreviewModal.jsx';
 
 async function loadCollections() {
   try {
@@ -109,38 +111,39 @@ function confirmDrop(name) {
   );
 }
 
-async function handleAiToggle() {
-  if (aiEnabled.value) {
-    ai.disableAI();
-    return;
-  }
+export { loadCollections };
 
-  const download = await ai.needsDownload();
-  if (download) {
-    confirmModal(
-      'Download AI Model',
-      'Enabling AI features requires downloading Chrome\u2019s built-in AI model (~4 GB). ' +
-      'Your device needs at least 22 GB of free disk space and an unmetered network connection. ' +
-      'The model runs locally and no data is sent to external servers. Continue?',
-      () => ai.enableAI(),
-    );
-  } else {
-    ai.enableAI();
+function countEnabledFeatures() {
+  let n = 0;
+  for (const f of FEATURES) {
+    const s = f.useState();
+    if (s.state === 'on' || s.state === 'downloading') n++;
   }
+  return n;
 }
 
-export { loadCollections };
+function FeaturePreviewEntry() {
+  useEffect(() => { ai.initAvailability(); }, []);
+  const n = countEnabledFeatures();
+  return (
+    <div
+      class="sidebar-nav-item"
+      data-testid="feature-preview-entry"
+      onClick={() => openModal('Feature preview', () => <FeaturePreviewModal />)}
+      title="Try early-access features"
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2l.5 4 4 .5-4 .5-.5 4-.5-4-4-.5 4-.5z"/><path d="M18 9l.5 3 3 .5-3 .5-.5 3-.5-3-3-.5 3-.5z"/><path d="M11 16l.5 3 3 .5-3 .5-.5 3-.5-3-3-.5 3-.5z"/></svg>
+      <span>Feature preview</span>
+      {n > 0 && <span class="feature-preview-count" style="margin-left:auto">{n}</span>}
+    </div>
+  );
+}
 
 export default function Sidebar() {
   useEffect(() => { loadCollections(); }, []);
-  useEffect(() => { ai.initAvailability(); }, []);
 
   const cols = collections.value;
   const selected = selectedCollection.value;
-  const isAiUnavailable = aiStatus.value === 'unavailable';
-  const isAiEnabled = aiEnabled.value;
-  const isAiDownloading = aiStatus.value === 'downloading';
-  const downloadPct = Math.round(aiDownloadProgress.value * 100);
 
   return (
     <aside id="sidebar" class="sidebar">
@@ -179,35 +182,7 @@ export default function Sidebar() {
         ))}
       </div>
       <div class="sidebar-footer">
-        {!isAiUnavailable && (
-          <div class="sidebar-ai-section">
-            <div
-              class="sidebar-nav-item sidebar-ai-toggle"
-              onClick={handleAiToggle}
-              title={isAiEnabled ? 'Disable AI features' : 'Enable AI features (experimental, ~4 GB model download)'}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2l.5 4 4 .5-4 .5-.5 4-.5-4-4-.5 4-.5z"/><path d="M18 9l.5 3 3 .5-3 .5-.5 3-.5-3-3-.5 3-.5z"/><path d="M11 16l.5 3 3 .5-3 .5-.5 3-.5-3-3-.5 3-.5z"/></svg>
-              <span>AI Features</span>
-              <span class="ai-explain-badge">Experimental</span>
-              <span class={'sidebar-ai-pill' + (isAiEnabled ? ' on' : '')} style="margin-left:auto">{isAiEnabled ? 'ON' : 'OFF'}</span>
-            </div>
-            {isAiDownloading && (
-              <div class="sidebar-ai-download">
-                <div class="ai-download-info">
-                  {downloadPct > 0 ? `Downloading model... ${downloadPct}%` : 'Preparing AI model...'}
-                </div>
-                <div class={'ai-download-bar' + (downloadPct === 0 ? ' indeterminate' : '')}>
-                  <div class="ai-download-bar-fill" style={downloadPct > 0 ? { width: downloadPct + '%' } : {}} />
-                </div>
-              </div>
-            )}
-            {isAiEnabled && !isAiDownloading && aiStatus.value !== 'ready' && (
-              <div class="sidebar-ai-download">
-                <div class="ai-download-info">Initializing AI model...</div>
-              </div>
-            )}
-          </div>
-        )}
+        <FeaturePreviewEntry />
         <div
           class={'sidebar-nav-item' + (activeView.value === 'overview' ? ' active' : '')}
           onClick={showOverview}
