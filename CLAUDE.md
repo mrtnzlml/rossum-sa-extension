@@ -110,6 +110,7 @@ Source `manifest.json` has a placeholder `"version": "0.0"` — never edit it ma
 
 ## Release Process
 
-1. `npm run build`
-2. ZIP the `dist/` folder
-3. Upload via https://chrome.google.com/webstore/devconsole
+1. `npm test` — must be fully green before packaging; fix any failures and re-run
+2. `npm run build`
+3. ZIP the `dist/` folder
+4. Upload via https://chrome.google.com/webstore/devconsole

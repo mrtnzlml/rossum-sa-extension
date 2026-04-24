@@ -120,10 +120,10 @@ describe('MDH API client', () => {
     expect(fetchMock.mock.calls[0][1].method).toBeUndefined();
   });
 
-  it('listOperations calls data-matching endpoint', async () => {
+  it('listOperations calls master-data-hub endpoint', async () => {
     await api.listOperations(50);
 
-    expect(fetchMock.mock.calls[0][0]).toContain('/svc/data-matching/api/v2/operation/');
+    expect(fetchMock.mock.calls[0][0]).toContain('/svc/master-data-hub/api/v2/operation/');
     expect(fetchMock.mock.calls[0][0]).toContain('limit=50');
   });
 });
