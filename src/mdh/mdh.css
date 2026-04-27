@@ -1446,13 +1446,71 @@ tbody.uploads-row-failed tr { background: rgba(239, 68, 68, 0.04); }
   border-bottom: 1px solid var(--border-light, var(--border));
 }
 
+.ops-search-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 280px;
+}
+
+.ops-search-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
 .ops-search {
-  padding: 4px 8px; font-size: 11px; border: 1px solid var(--border);
-  border-radius: var(--radius); background: var(--bg-input, var(--bg-main));
-  color: var(--text-primary); width: 200px;
+  padding: 5px 26px 5px 28px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input, var(--bg-main));
+  color: var(--text-primary);
+  width: 100%;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
 }
 
 .ops-search::placeholder { color: var(--text-secondary); }
+
+.ops-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg, rgba(80, 130, 255, 0.18));
+}
+
+.ops-search-wrap.has-value .ops-search {
+  border-color: var(--accent);
+  background: var(--accent-bg, rgba(80, 130, 255, 0.10));
+  font-weight: 500;
+}
+
+.ops-search-wrap.has-value .ops-search-icon {
+  color: var(--accent);
+}
+
+.ops-search-clear {
+  position: absolute;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ops-search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
 
 .ops-status-filter {
   padding: 4px 6px; font-size: 11px; border: 1px solid var(--border);

@@ -20,3 +20,4 @@ export const statsSummary = signal(null); // { collection, health, label } | nul
 export const operations = signal([]);
 export const operationsLoaded = signal(false);
 export const pendingOperations = signal(null); // { ops, changedOps } | null
+export const opsSearch = signal('');

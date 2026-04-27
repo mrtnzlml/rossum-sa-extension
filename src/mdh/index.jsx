@@ -129,7 +129,7 @@ async function boot() {
 
   const stored = await chrome.storage.local.get([
     ...(authKey ? [authKey] : []),
-    'mdhActiveView', 'mdhSelectedCollection', 'mdhActivePanel',
+    'mdhActiveView', 'mdhSelectedCollection', 'mdhActivePanel', 'mdhOpsSearch',
   ]);
   const entry = authKey ? stored[authKey] : null;
 
@@ -152,6 +152,9 @@ async function boot() {
   }
   if (stored.mdhActivePanel) {
     store.activePanel.value = stored.mdhActivePanel;
+  }
+  if (typeof stored.mdhOpsSearch === 'string') {
+    store.opsSearch.value = stored.mdhOpsSearch;
   }
 
   let connected = false;
@@ -186,6 +189,9 @@ async function boot() {
   });
   effect(() => {
     chrome.storage.local.set({ mdhActivePanel: store.activePanel.value });
+  });
+  effect(() => {
+    chrome.storage.local.set({ mdhOpsSearch: store.opsSearch.value });
   });
 
   let bgController = null;
