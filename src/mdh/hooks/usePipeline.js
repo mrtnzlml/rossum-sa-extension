@@ -3,6 +3,9 @@ import { signal } from '@preact/signals';
 import { skip } from '../store.js';
 
 const PLACEHOLDER_RE = /\{(\w+)\}/g;
+// Same name set as PLACEHOLDER_RE, but separates `"{name}"` (user wants a
+// string) from a bare `{name}` (user wants a literal value).
+const PLACEHOLDER_RE_QUOTED = /"\{(\w+)\}"|\{(\w+)\}/g;
 
 // Default sort: _id descending. Stable ordering for pagination, newest-first
 // when _id is an ObjectId, and always indexed (every collection has the `_id_` index).
@@ -82,12 +85,19 @@ export function usePipeline() {
   }
 
   function substitutePlaceholders(text) {
-    return text.replace(PLACEHOLDER_RE, (match, name) => {
+    return text.replace(PLACEHOLDER_RE_QUOTED, (match, quotedName, bareName) => {
+      const name = quotedName || bareName;
       if (!(name in placeholderValues.value)) return match;
       const val = placeholderValues.value[name];
+      // `"{name}"` — user wants a string regardless of value content.
+      if (quotedName) return JSON.stringify(String(val));
+      // Bare `{name}` — try literal interpretation first.
       if (val === 'true' || val === 'false' || val === 'null') return val;
       if (val !== '' && !isNaN(Number(val))) return val;
-      return val;
+      // Otherwise it's a bare string. JSON-encode it so the result is valid
+      // JSON5 — otherwise `{name: ABC}` reaches JSON5.parse, throws, and
+      // useQuery silently drops the request.
+      return JSON.stringify(val);
     });
   }
 

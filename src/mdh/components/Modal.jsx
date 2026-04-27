@@ -4,22 +4,37 @@ import { useEffect, useRef } from 'preact/hooks';
 import { modalContent } from '../store.js';
 
 export function closeModal() {
+  const m = modalContent.value;
+  if (!m) return;
   modalContent.value = null;
+  // Fire any registered close hook (used by promisified helpers to resolve).
+  // Read before nulling so re-entrant closeModal calls are no-ops.
+  if (m.onClose) m.onClose();
 }
 
+// Returns a Promise<boolean> that resolves to true on Confirm and false on
+// Cancel / Escape / overlay-click / X. The legacy `onConfirm` callback is
+// still invoked on Confirm so existing call sites keep working.
 export function confirmModal(title, message, onConfirm) {
-  modalContent.value = {
-    title,
-    render: () => (
-      <div class="modal-body">
-        <p class="modal-message">{message}</p>
-        <div class="modal-actions">
-          <button class="btn btn-secondary" onClick={closeModal}>Cancel</button>
-          <button class="btn btn-danger" onClick={() => { closeModal(); onConfirm(); }}>Confirm</button>
+  return new Promise((resolve) => {
+    let confirmed = false;
+    modalContent.value = {
+      title,
+      render: () => (
+        <div class="modal-body">
+          <p class="modal-message">{message}</p>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" onClick={closeModal}>Cancel</button>
+            <button class="btn btn-danger" onClick={() => { confirmed = true; closeModal(); }}>Confirm</button>
+          </div>
         </div>
-      </div>
-    ),
-  };
+      ),
+      onClose: () => {
+        if (confirmed && onConfirm) onConfirm();
+        resolve(confirmed);
+      },
+    };
+  });
 }
 
 export function promptModal(title, { placeholder, initialValue, submitLabel, submitClass }, onSubmit) {
@@ -42,7 +57,15 @@ function PromptBody({ placeholder, initialValue, submitLabel, submitClass, onSub
 
   function doSubmit() {
     const val = inputRef.current.value.trim();
-    if (!val || val === initialValue) { closeModal(); return; }
+    if (!val) {
+      if (hintRef.current) {
+        hintRef.current.textContent = 'Please enter a value';
+        hintRef.current.style.color = 'var(--danger)';
+      }
+      inputRef.current.focus();
+      return;
+    }
+    if (val === initialValue) { closeModal(); return; }
     onSubmit(val, hintRef.current);
   }
 

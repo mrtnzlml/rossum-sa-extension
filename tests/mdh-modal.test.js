@@ -150,6 +150,30 @@ describe('confirmModal', () => {
     expect(spy).toHaveBeenCalledOnce();
     expect(modalContent.value).toBeNull();
   });
+
+  it('returns a Promise that resolves true on Confirm', async () => {
+    const root = mount();
+    const p = confirmModal('T', 'M');
+    rerender(root);
+    root.querySelectorAll('.modal-actions button')[1].click();
+    await expect(p).resolves.toBe(true);
+  });
+
+  it('returns a Promise that resolves false on Cancel', async () => {
+    const root = mount();
+    const p = confirmModal('T', 'M');
+    rerender(root);
+    root.querySelectorAll('.modal-actions button')[0].click();
+    await expect(p).resolves.toBe(false);
+  });
+
+  it('returns a Promise that resolves false on Escape', async () => {
+    const root = mount();
+    const p = confirmModal('T', 'M');
+    rerender(root);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await expect(p).resolves.toBe(false);
+  });
 });
 
 describe('promptModal', () => {
@@ -202,7 +226,7 @@ describe('promptModal', () => {
     expect(modalContent.value).toBeNull();
   });
 
-  it('submit with empty value closes without callback', () => {
+  it('submit with empty value shows a hint and keeps the modal open', () => {
     const root = mount();
     const spy = vi.fn();
     promptModal('T', {}, spy);
@@ -211,7 +235,8 @@ describe('promptModal', () => {
     root.querySelector('input.input').value = '   ';
     root.querySelectorAll('.modal-actions button')[1].click();
     expect(spy).not.toHaveBeenCalled();
-    expect(modalContent.value).toBeNull();
+    expect(modalContent.value).not.toBeNull();
+    expect(root.querySelector('.input-hint').textContent).toBe('Please enter a value');
   });
 
   it('Enter key submits the form', () => {

@@ -18,12 +18,28 @@ export default function RecordList({ records, pipelineText, filterState, sortSta
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
+    // Throttle: dragging the panel resizer fires the observer per pixel and
+    // each setListWidth re-renders every RecordCard. Only update when the
+    // width actually changes by enough to affect the char-budget calculation
+    // (~one character at the smallest font), and coalesce with rAF.
+    const WIDTH_THRESHOLD_PX = CHAR_WIDTH_PX;
+    let lastReported = el.getBoundingClientRect().width;
+    let pending = lastReported;
+    let raf = 0;
     const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) setListWidth(entry.contentRect.width);
+      for (const entry of entries) pending = entry.contentRect.width;
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        if (Math.abs(pending - lastReported) >= WIDTH_THRESHOLD_PX) {
+          lastReported = pending;
+          setListWidth(pending);
+        }
+      });
     });
     ro.observe(el);
-    setListWidth(el.getBoundingClientRect().width);
-    return () => ro.disconnect();
+    setListWidth(lastReported);
+    return () => { if (raf) cancelAnimationFrame(raf); ro.disconnect(); };
   }, []);
 
   useEffect(() => {

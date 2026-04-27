@@ -55,17 +55,34 @@ export default function PipelineDebug({ pipeline }) {
     if (!collection || !pipeline || pipeline.length === 0) return;
     setStageCounts({});
 
+    // One $facet aggregation runs the per-stage $count branches server-side.
+    // Replaces N separate round trips and removes the prior race where stale
+    // results from a previous pipeline could overwrite the new state.
+    const controller = new AbortController();
+    const facets = {};
     pipeline.forEach((_, i) => {
-      const prefix = pipeline.slice(0, i + 1);
-      api.aggregate(collection, [...prefix, { $count: 'n' }])
-        .then((res) => {
-          const n = res.result?.[0]?.n ?? 0;
-          setStageCounts((prev) => ({ ...prev, [i]: { count: n } }));
-        })
-        .catch((err) => {
-          setStageCounts((prev) => ({ ...prev, [i]: { error: err.message } }));
-        });
+      facets[`s${i}`] = [...pipeline.slice(0, i + 1), { $count: 'n' }];
     });
+    api.aggregate(collection, [{ $facet: facets }], { signal: controller.signal })
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        const facetResult = res.result?.[0] || {};
+        const next = {};
+        pipeline.forEach((_, i) => {
+          const branch = facetResult[`s${i}`];
+          const n = branch?.[0]?.n ?? 0;
+          next[i] = { count: n };
+        });
+        setStageCounts(next);
+      })
+      .catch((err) => {
+        if (err?.name === 'AbortError' || controller.signal.aborted) return;
+        const next = {};
+        pipeline.forEach((_, i) => { next[i] = { error: err.message }; });
+        setStageCounts(next);
+      });
+
+    return () => controller.abort();
   }, [collection, JSON.stringify(pipeline)]);
 
   if (!pipeline || pipeline.length === 0) return null;

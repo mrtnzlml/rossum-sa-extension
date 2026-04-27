@@ -276,16 +276,10 @@ export default function DataPanel() {
   async function downloadCollection() {
     const tc = pagination.totalCount.value;
     if (tc !== null && tc > 10_000) {
-      const proceed = await new Promise((resolve) => {
-        confirmModal(
-          'Large collection',
-          `This collection has ${tc.toLocaleString()} documents. Downloading may take a while and use significant memory. Continue?`,
-          () => resolve(true),
-        );
-        const check = setInterval(() => {
-          if (!document.querySelector('.modal-overlay.visible')) { clearInterval(check); resolve(false); }
-        }, 200);
-      });
+      const proceed = await confirmModal(
+        'Large collection',
+        `This collection has ${tc.toLocaleString()} documents. Downloading may take a while and use significant memory. Continue?`,
+      );
       if (!proceed) return;
     }
 

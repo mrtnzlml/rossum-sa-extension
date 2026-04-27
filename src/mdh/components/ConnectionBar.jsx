@@ -8,17 +8,22 @@ export default function ConnectionBar({ connected }) {
 
   useEffect(() => {
     if (!connected) return;
-    const id = setInterval(() => {
+    let last = '';
+    const compute = () => {
       const col = selectedCollection.value;
       const s = cache.stats(col);
-      if (s.fieldCount === 0) {
-        setCacheText('cache: empty');
-      } else if (s.age !== null) {
+      if (s.fieldCount === 0) return 'cache: empty';
+      if (s.age !== null) {
         const secs = Math.round(s.age / 1000);
-        setCacheText(`cache: ${s.fieldCount} objects \u00b7 ${secs < 2 ? 'fresh' : secs + 's ago'}`);
-      } else {
-        setCacheText(`cache: ${s.fieldCount} objects`);
+        return `cache: ${s.fieldCount} objects \u00b7 ${secs < 2 ? 'fresh' : secs + 's ago'}`;
       }
+      return `cache: ${s.fieldCount} objects`;
+    };
+    const id = setInterval(() => {
+      const next = compute();
+      // Skip the setState entirely when the displayed text hasn't changed \u2014
+      // otherwise this fires a re-render every second of every connected session.
+      if (next !== last) { last = next; setCacheText(next); }
     }, 1000);
     return () => clearInterval(id);
   }, [connected]);

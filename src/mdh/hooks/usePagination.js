@@ -34,6 +34,11 @@ export function usePagination() {
   }
 
   function hasNext(recordCount) {
+    // Prefer the authoritative total when we know it — the record-count
+    // heuristic falsely reports a next page when the last page happens to be
+    // exactly `limit` records.
+    const total = totalCount.value;
+    if (typeof total === 'number') return skip.value + limit.value < total;
     return recordCount >= limit.value;
   }
 

@@ -93,16 +93,11 @@ export function invalidateAll() {
 }
 
 function evict() {
+  // Map preserves insertion order, and both `set()` and `get()` re-insert the
+  // entry at the end — so the first key is always least-recently-used.
   while (entries.size > MAX_ENTRIES) {
-    let oldestKey = null;
-    let oldestAccess = Infinity;
-    for (const [key, entry] of entries) {
-      if (entry.lastAccess < oldestAccess) {
-        oldestAccess = entry.lastAccess;
-        oldestKey = key;
-      }
-    }
-    if (oldestKey !== null) entries.delete(oldestKey);
-    else break;
+    const oldest = entries.keys().next().value;
+    if (oldest === undefined) break;
+    entries.delete(oldest);
   }
 }

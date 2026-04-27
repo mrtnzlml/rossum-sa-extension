@@ -13,6 +13,16 @@ const REQUEST_TIMEOUT = 30_000;
 function combinedSignal(externalSignal) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+  // Drop the timer immediately if the caller aborts, so a long-lived (or
+  // already-aborted) external signal can't keep an idle timer alive.
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      clearTimeout(timer);
+    } else {
+      const onAbort = () => clearTimeout(timer);
+      externalSignal.addEventListener('abort', onAbort, { once: true });
+    }
+  }
   const signal = externalSignal
     ? AbortSignal.any([externalSignal, controller.signal])
     : controller.signal;

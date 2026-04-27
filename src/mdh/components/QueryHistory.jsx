@@ -1,36 +1,69 @@
 import { h } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
+import JSON5 from 'json5';
 import { selectedCollection } from '../store.js';
 
 const MAX_HISTORY = 30;
 
+// Storage moved from chrome.storage.sync to chrome.storage.local: sync's 8 KB
+// per-item / 100 KB total limits silently dropped large pipelines. local has
+// 10 MB. On read we still merge anything left in sync so existing users
+// don't lose their history; on write we go local-only and clear sync.
+async function readList(key) {
+  const local = (await chrome.storage.local.get(key))?.[key] || [];
+  if (local.length > 0) return local;
+  try {
+    const sync = (await chrome.storage.sync.get(key))?.[key] || [];
+    if (sync.length > 0) {
+      await chrome.storage.local.set({ [key]: sync });
+      await chrome.storage.sync.remove(key);
+      return sync;
+    }
+  } catch { /* sync may be unavailable; ignore */ }
+  return [];
+}
+
+async function writeList(key, list) {
+  await chrome.storage.local.set({ [key]: list });
+}
+
+// Normalize a pipeline string so cosmetic edits (whitespace, key order from
+// JSON5 reformatting) don't create duplicate entries. Falls back to the raw
+// string if parsing fails.
+function dedupKey(collection, pipeline) {
+  let normalized = pipeline;
+  try { normalized = JSON.stringify(JSON5.parse(pipeline)); } catch { /* keep raw */ }
+  return collection + '::' + normalized;
+}
+
 export async function addToHistory(collection, pipeline, variables) {
-  const { queryHistory = [] } = await chrome.storage.sync.get('queryHistory');
-  const key = collection + '::' + pipeline;
-  const filtered = queryHistory.filter((e) => e.collection + '::' + e.pipeline !== key);
+  const queryHistory = await readList('queryHistory');
+  const key = dedupKey(collection, pipeline);
+  const filtered = queryHistory.filter((e) => dedupKey(e.collection, e.pipeline) !== key);
   const entry = { collection, pipeline, ts: Date.now() };
   if (variables && Object.keys(variables).length > 0) entry.variables = variables;
   filtered.unshift(entry);
-  await chrome.storage.sync.set({ queryHistory: filtered.slice(0, MAX_HISTORY) });
+  await writeList('queryHistory', filtered.slice(0, MAX_HISTORY));
 }
 
 export async function saveQuery(collection, pipeline, name, variables) {
-  const { savedQueries = [] } = await chrome.storage.sync.get('savedQueries');
+  const savedQueries = await readList('savedQueries');
   const entry = { collection, pipeline, name, ts: Date.now() };
   if (variables && Object.keys(variables).length > 0) entry.variables = variables;
   savedQueries.push(entry);
-  await chrome.storage.sync.set({ savedQueries });
+  await writeList('savedQueries', savedQueries);
 }
 
 export async function unsaveQuery(collection, pipeline) {
-  const { savedQueries = [] } = await chrome.storage.sync.get('savedQueries');
-  const key = collection + '::' + pipeline;
-  await chrome.storage.sync.set({ savedQueries: savedQueries.filter((q) => q.collection + '::' + q.pipeline !== key) });
+  const savedQueries = await readList('savedQueries');
+  const key = dedupKey(collection, pipeline);
+  await writeList('savedQueries', savedQueries.filter((q) => dedupKey(q.collection, q.pipeline) !== key));
 }
 
 export async function isSaved(collection, pipeline) {
-  const { savedQueries = [] } = await chrome.storage.sync.get('savedQueries');
-  return savedQueries.some((q) => q.collection + '::' + q.pipeline === collection + '::' + pipeline);
+  const savedQueries = await readList('savedQueries');
+  const key = dedupKey(collection, pipeline);
+  return savedQueries.some((q) => dedupKey(q.collection, q.pipeline) === key);
 }
 
 function formatTime(ts) {
@@ -69,7 +102,7 @@ function HistoryList({ onLoad, onDismiss }) {
   const currentCollection = selectedCollection.value;
 
   useEffect(() => {
-    chrome.storage.sync.get('queryHistory').then(({ queryHistory = [] }) => setItems(queryHistory));
+    readList('queryHistory').then(setItems);
   }, []);
 
   if (items.length === 0) {
@@ -90,8 +123,7 @@ function SavedList({ onLoad, onDismiss }) {
   const currentCollection = selectedCollection.value;
 
   async function refresh() {
-    const { savedQueries = [] } = await chrome.storage.sync.get('savedQueries');
-    setItems(savedQueries);
+    setItems(await readList('savedQueries'));
   }
 
   useEffect(() => { refresh(); }, []);
