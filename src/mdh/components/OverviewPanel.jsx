@@ -4,9 +4,12 @@ import { collections, selectedCollection, activeView } from '../store.js';
 import * as api from '../api.js';
 import * as cache from '../cache.js';
 import { buildStoragePipeline, buildBatchStoragePipeline } from '../statsPipelines.js';
+import FlashOnChange from './FlashOnChange.jsx';
 
 const BATCH_SIZE = 50;
 const BATCH_CONCURRENCY = 3;
+const LIVE_POLL_VISIBLE_MS = 15_000;
+const LIVE_POLL_HIDDEN_MS = 120_000;
 
 function formatBytes(n) {
   if (n == null) return '\u2014';
@@ -49,97 +52,13 @@ export default function OverviewPanel() {
   const [reloadKey, setReloadKey] = useState(0);
   const abortRef = useRef(null);
 
-  useEffect(() => {
-    if (abortRef.current) abortRef.current.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    setData({});
-    setLoadingSet(new Set(cols));
-
-    // Batch setState calls with a microtask so N concurrent arrivals don't
-    // trigger N renders in flight when the collection list is large.
-    const pending = {};
-    let flushScheduled = false;
-    function scheduleFlush() {
-      if (flushScheduled) return;
-      flushScheduled = true;
-      queueMicrotask(() => {
-        flushScheduled = false;
-        if (controller.signal.aborted) return;
-        const batch = pending.batch;
-        const done = pending.done;
-        pending.batch = null;
-        pending.done = null;
-        if (batch) setData((d) => ({ ...d, ...batch }));
-        if (done) {
-          setLoadingSet((prev) => {
-            const next = new Set(prev);
-            for (const n of done) next.delete(n);
-            return next;
-          });
-        }
-      });
-    }
-
-    function publish(name, value) {
-      (pending.batch ||= {})[name] = value;
-      (pending.done ||= []).push(name);
-      scheduleFlush();
-    }
-
-    function cacheAndRecord(name, res) {
-      cache.set(name, 'stats_storage', res);
-      const s = res.result?.[0]?.storageStats;
-      if (typeof s?.count === 'number' && cache.get(name, 'totalCount') === null) {
-        cache.set(name, 'totalCount', s.count);
-      }
-      publish(name, extractStats(res.result?.[0]));
-    }
-
-    // Per-collection fallback — used when a batched call fails.
-    async function fetchOne(name) {
-      try {
-        const res = await api.aggregate(name, buildStoragePipeline(), { signal: controller.signal });
-        if (controller.signal.aborted) return;
-        cacheAndRecord(name, res);
-      } catch (err) {
-        if (err.name === 'AbortError') return;
-        publish(name, { error: err.message });
-      }
-    }
-
-    async function fetchBatch(names) {
-      if (names.length === 0) return;
-      if (names.length === 1) { await fetchOne(names[0]); return; }
-      try {
-        const res = await api.aggregate(names[0], buildBatchStoragePipeline(names), { signal: controller.signal });
-        if (controller.signal.aborted) return;
-        const byName = new Map();
-        for (const row of res.result || []) {
-          if (row?._coll) byName.set(row._coll, row);
-        }
-        for (const name of names) {
-          const row = byName.get(name);
-          if (!row) {
-            publish(name, { error: 'Missing from batch response' });
-            continue;
-          }
-          // Store as the same shape the StatsPanel expects:
-          // { result: [{ storageStats, _coll }] }
-          cacheAndRecord(name, { result: [row] });
-        }
-      } catch (err) {
-        if (err.name === 'AbortError') return;
-        // Fall back to per-collection calls for just this batch.
-        await runWithConcurrency(names, BATCH_CONCURRENCY, controller.signal, fetchOne);
-      }
-    }
-
-    (async () => {
-      // 1. Cache-first pass — populate anything we already have, zero API calls.
-      const toFetch = [];
-      for (const name of cols) {
+  // Shared fetch pipeline used by both the initial load (cache-first, populates
+  // loadingSet) and the live poll (cache-bypass, leaves loadingSet alone).
+  // `publish(name, value)` is called incrementally as each batch resolves.
+  async function streamStats(names, signal, publish, { useCache }) {
+    const toFetch = [];
+    if (useCache) {
+      for (const name of names) {
         const cached = cache.get(name, 'stats_storage');
         if (cached) {
           const s = cached.result?.[0]?.storageStats;
@@ -151,16 +70,155 @@ export default function OverviewPanel() {
           toFetch.push(name);
         }
       }
+    } else {
+      toFetch.push(...names);
+    }
 
-      // 2. Batched fetch for the rest.
-      const batches = [];
-      for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
-        batches.push(toFetch.slice(i, i + BATCH_SIZE));
+    function cacheAndRecord(name, res) {
+      cache.set(name, 'stats_storage', res);
+      const s = res.result?.[0]?.storageStats;
+      if (typeof s?.count === 'number' && cache.get(name, 'totalCount') === null) {
+        cache.set(name, 'totalCount', s.count);
       }
-      await runWithConcurrency(batches, BATCH_CONCURRENCY, controller.signal, fetchBatch);
-    })();
+      publish(name, extractStats(res.result?.[0]));
+    }
+
+    async function fetchOne(name) {
+      try {
+        const res = await api.aggregate(name, buildStoragePipeline(), { signal });
+        if (signal.aborted) return;
+        cacheAndRecord(name, res);
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        publish(name, { error: err.message });
+      }
+    }
+
+    async function fetchBatch(group) {
+      if (group.length === 0) return;
+      if (group.length === 1) { await fetchOne(group[0]); return; }
+      try {
+        const res = await api.aggregate(group[0], buildBatchStoragePipeline(group), { signal });
+        if (signal.aborted) return;
+        const byName = new Map();
+        for (const row of res.result || []) if (row?._coll) byName.set(row._coll, row);
+        for (const name of group) {
+          const row = byName.get(name);
+          if (!row) { publish(name, { error: 'Missing from batch response' }); continue; }
+          cacheAndRecord(name, { result: [row] });
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        await runWithConcurrency(group, BATCH_CONCURRENCY, signal, fetchOne);
+      }
+    }
+
+    const batches = [];
+    for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
+      batches.push(toFetch.slice(i, i + BATCH_SIZE));
+    }
+    await runWithConcurrency(batches, BATCH_CONCURRENCY, signal, fetchBatch);
+  }
+
+  // Microtask-batched publisher — coalesces N concurrent arrivals into one
+  // setData/setLoadingSet pass. `withLoadingSet=false` is used by the poll
+  // path so it never re-shows skeletons.
+  function makePublisher(controller, withLoadingSet) {
+    const pending = {};
+    let scheduled = false;
+    function schedule() {
+      if (scheduled) return;
+      scheduled = true;
+      queueMicrotask(() => {
+        scheduled = false;
+        if (controller.signal.aborted) return;
+        const batch = pending.batch;
+        const done = pending.done;
+        pending.batch = null;
+        pending.done = null;
+        if (batch) setData((d) => ({ ...d, ...batch }));
+        if (withLoadingSet && done) {
+          setLoadingSet((prev) => {
+            const next = new Set(prev);
+            for (const n of done) next.delete(n);
+            return next;
+          });
+        }
+      });
+    }
+    return function publish(name, value) {
+      (pending.batch ||= {})[name] = value;
+      if (withLoadingSet) (pending.done ||= []).push(name);
+      schedule();
+    };
+  }
+
+  // Initial load — shows skeletons, cache-first.
+  useEffect(() => {
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setData({});
+    setLoadingSet(new Set(cols));
+
+    streamStats(cols, controller.signal, makePublisher(controller, true), { useCache: true });
 
     return () => controller.abort();
+  }, [cols, reloadKey]);
+
+  // Live polling — refreshes values in place at a visibility-aware cadence
+  // so users watching a collection grow (e.g., during a bulk import) see
+  // counts and sizes update without manual refresh. Only ticks while the
+  // overview is the active view.
+  useEffect(() => {
+    if (cols.length === 0) return undefined;
+
+    let cancelled = false;
+    let timer = null;
+    let inFlight = false;
+    let pollController = null;
+
+    const delay = () => (document.visibilityState === 'hidden' ? LIVE_POLL_HIDDEN_MS : LIVE_POLL_VISIBLE_MS);
+    const schedule = (ms = delay()) => {
+      if (cancelled || timer) return;
+      timer = setTimeout(tick, ms);
+    };
+
+    async function tick() {
+      timer = null;
+      if (cancelled || inFlight) return;
+      if (activeView.value !== 'overview') { schedule(); return; }
+      inFlight = true;
+      pollController = new AbortController();
+      try {
+        await streamStats(cols, pollController.signal, makePublisher(pollController, false), { useCache: false });
+      } catch {
+        // poll errors are non-fatal — try again next tick
+      } finally {
+        inFlight = false;
+        pollController = null;
+        schedule();
+      }
+    }
+
+    function onVisibility() {
+      if (cancelled) return;
+      if (document.visibilityState === 'visible') {
+        if (timer) { clearTimeout(timer); timer = null; }
+        tick();
+      }
+    }
+
+    schedule();
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      if (pollController) pollController.abort();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [cols, reloadKey]);
 
   function onSort(key) {
@@ -292,18 +350,18 @@ export default function OverviewPanel() {
                       <Fragment>
                         <td class="stats-mono stats-num stats-coverage-cell">
                           <div class="stats-coverage-bar" style={{ width: `${barPct(r.count, maxCount)}%` }} />
-                          <span class="stats-coverage-text">{r.count != null ? r.count.toLocaleString() : '\u2014'}</span>
+                          <span class="stats-coverage-text"><FlashOnChange value={r.count != null ? r.count.toLocaleString() : '\u2014'} /></span>
                         </td>
                         <td class="stats-mono stats-num stats-coverage-cell">
                           <div class="stats-coverage-bar" style={{ width: `${barPct(r.storageSize, maxStorageSize)}%` }} />
-                          <span class="stats-coverage-text">{formatBytes(r.storageSize)}</span>
+                          <span class="stats-coverage-text"><FlashOnChange value={formatBytes(r.storageSize)} /></span>
                         </td>
-                        <td class="stats-mono stats-num">{formatBytes(r.size)}</td>
-                        <td class="stats-mono stats-num">{formatBytes(r.avgObjSize)}</td>
-                        <td class="stats-mono stats-num">{r.nindexes ?? '\u2014'}</td>
+                        <td class="stats-mono stats-num"><FlashOnChange value={formatBytes(r.size)} /></td>
+                        <td class="stats-mono stats-num"><FlashOnChange value={formatBytes(r.avgObjSize)} /></td>
+                        <td class="stats-mono stats-num"><FlashOnChange value={r.nindexes ?? '\u2014'} /></td>
                         <td class="stats-mono stats-num stats-coverage-cell">
                           <div class="stats-coverage-bar" style={{ width: `${barPct(r.totalIndexSize, maxIndexSize)}%` }} />
-                          <span class="stats-coverage-text">{formatBytes(r.totalIndexSize)}</span>
+                          <span class="stats-coverage-text"><FlashOnChange value={formatBytes(r.totalIndexSize)} /></span>
                         </td>
                       </Fragment>
                     )}
@@ -315,12 +373,12 @@ export default function OverviewPanel() {
               <tfoot>
                 <tr class="stats-totals-row">
                   <td><strong>Total ({totalCount})</strong></td>
-                  <td class="stats-mono stats-num"><strong>{totals.count.toLocaleString()}</strong></td>
-                  <td class="stats-mono stats-num"><strong>{formatBytes(totals.storageSize)}</strong></td>
-                  <td class="stats-mono stats-num"><strong>{formatBytes(totals.size)}</strong></td>
+                  <td class="stats-mono stats-num"><strong><FlashOnChange value={totals.count.toLocaleString()} /></strong></td>
+                  <td class="stats-mono stats-num"><strong><FlashOnChange value={formatBytes(totals.storageSize)} /></strong></td>
+                  <td class="stats-mono stats-num"><strong><FlashOnChange value={formatBytes(totals.size)} /></strong></td>
                   <td class="stats-mono stats-num">{'\u2014'}</td>
-                  <td class="stats-mono stats-num"><strong>{totals.nindexes.toLocaleString()}</strong></td>
-                  <td class="stats-mono stats-num"><strong>{formatBytes(totals.totalIndexSize)}</strong></td>
+                  <td class="stats-mono stats-num"><strong><FlashOnChange value={totals.nindexes.toLocaleString()} /></strong></td>
+                  <td class="stats-mono stats-num"><strong><FlashOnChange value={formatBytes(totals.totalIndexSize)} /></strong></td>
                 </tr>
               </tfoot>
             )}

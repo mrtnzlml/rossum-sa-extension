@@ -1,5 +1,5 @@
 import { h, Fragment } from 'preact';
-import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
+import { useState, useEffect, useMemo } from 'preact/hooks';
 import {
   loading, error,
   operations, operationsLoaded, pendingOperations, opsSearch,
@@ -7,6 +7,7 @@ import {
 } from '../store.js';
 import * as api from '../api.js';
 import AiInsight from './AiInsight.jsx';
+import FlashOnChange from './FlashOnChange.jsx';
 
 export async function loadOperations() {
   try {
@@ -232,25 +233,6 @@ function ActivitySparkline({ buckets, range }) {
       )}
     </div>
   );
-}
-
-function FlashOnChange({ value }) {
-  const firstRef = useRef(true);
-  const prevRef = useRef(value);
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (firstRef.current) {
-      firstRef.current = false;
-      prevRef.current = value;
-      return;
-    }
-    if (prevRef.current !== value) {
-      prevRef.current = value;
-      setTick((t) => t + 1);
-    }
-  }, [value]);
-  if (tick === 0) return <span>{value}</span>;
-  return <span key={tick} class="flash-value">{value}</span>;
 }
 
 function opGroupKey(op) {
