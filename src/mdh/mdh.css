@@ -1005,6 +1005,13 @@ body {
 .index-badge-unique { background: #7c3aed; color: #fff; }
 .index-badge-ready { background: var(--success-bg); color: var(--success-fg); }
 .index-badge-pending { background: var(--warning-bg); color: var(--warning-fg); }
+.index-badge-failed { background: var(--danger); color: #fff; }
+
+.record-card-failed {
+  border-color: var(--danger);
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+.record-card-failed.record-card-expanded { border-color: var(--danger); }
 
 @media (prefers-color-scheme: dark) {
   .index-badge-unique { background: #6d28d9; }

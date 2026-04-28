@@ -5,7 +5,7 @@ import { confirmModal } from './Modal.jsx';
 import JsonEditor from './JsonEditor.jsx';
 import AiInsight from './AiInsight.jsx';
 
-export default function IndexCard({ name, badges = [], definition, canDrop, onDrop, indexType }) {
+export default function IndexCard({ name, badges = [], definition, canDrop, onDrop, indexType, cardClass }) {
   const [expanded, setExpanded] = useState(true);
 
   function handleCopy(e) {
@@ -25,7 +25,7 @@ export default function IndexCard({ name, badges = [], definition, canDrop, onDr
   }
 
   return (
-    <div class={'record-card' + (expanded ? ' record-card-expanded' : '')}>
+    <div class={'record-card' + (expanded ? ' record-card-expanded' : '') + (cardClass ? ' ' + cardClass : '')}>
       <div
         class="record-card-header"
         style="cursor:pointer"

@@ -139,13 +139,16 @@ export default function SearchIndexPanel() {
           const isObj = typeof idx === 'object' && idx !== null;
           const name = isObj ? (idx.name || '(unnamed)') : String(idx);
           const badges = [];
+          const status = isObj && idx.status ? String(idx.status).toUpperCase() : null;
+          const isFailed = status === 'FAILED' || status === 'STALE';
           if (isObj && idx.status) {
-            const cls = idx.status === 'READY' ? 'index-badge-ready'
-              : (idx.status === 'PENDING' || idx.status === 'BUILDING') ? 'index-badge-pending' : '';
+            const cls = status === 'READY' ? 'index-badge-ready'
+              : (status === 'PENDING' || status === 'BUILDING') ? 'index-badge-pending'
+              : isFailed ? 'index-badge-failed' : '';
             badges.push({ text: idx.status.toLowerCase(), cls });
           }
           if (isObj && idx.type) badges.push({ text: idx.type });
-          return <IndexCard name={name} badges={badges} definition={isObj ? idx : null} canDrop onDrop={() => doDropSearchIndex(name)} indexType="searchIndex" />;
+          return <IndexCard name={name} badges={badges} definition={isObj ? idx : null} canDrop onDrop={() => doDropSearchIndex(name)} indexType="searchIndex" cardClass={isFailed ? 'record-card-failed' : null} />;
         })}
       </div>
       {opStatus && (
