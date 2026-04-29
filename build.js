@@ -34,7 +34,7 @@ const options = {
     'scripts/rossum': 'src/rossum/index.js',
     'scripts/netsuite': 'src/netsuite/index.js',
     'scripts/coupa': 'src/coupa/index.js',
-    'popup/popup': 'src/popup/popup.js',
+    'popup/popup': 'src/popup/popup.jsx',
     'mdh/mdh': 'src/mdh/index.jsx',
   },
   bundle: true,
