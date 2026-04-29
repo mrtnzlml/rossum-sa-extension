@@ -3,6 +3,7 @@ import { init as initResourceIds, handleNode as handleResourceId } from './featu
 import { handleNode as handleExpandFormulas } from './features/expand-formulas.js';
 import { handleNode as handleExpandReasoning } from './features/expand-reasoning.js';
 import { initScrollLock, initFocusPatch } from './features/scroll-lock.js';
+import { init as initLogColumns } from './features/log-columns.js';
 import { initDevFlags } from './features/dev-flags.js';
 
 initDevFlags();
@@ -13,11 +14,16 @@ const SETTINGS_KEYS = [
   'expandReasoningFieldsEnabled',
   'scrollLockEnabled',
   'resourceIdsEnabled',
+  'logColumnsEnabled',
 ];
 
 chrome.storage.local.get(SETTINGS_KEYS).then((settings) => {
   if (settings.scrollLockEnabled) {
     initFocusPatch();
+  }
+
+  if (settings.logColumnsEnabled) {
+    initLogColumns();
   }
 
   const handlers = [];

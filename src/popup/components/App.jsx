@@ -10,6 +10,7 @@ const STORAGE_TOGGLES = [
   'expandFormulasEnabled',
   'expandReasoningFieldsEnabled',
   'scrollLockEnabled',
+  'logColumnsEnabled',
   'netsuiteFieldNamesEnabled',
   'coupaFieldNamesEnabled',
 ];
@@ -220,6 +221,13 @@ export default function App({ tab }) {
                     hint="Keep annotation sidebar scroll position"
                     checked={storageValues.scrollLockEnabled}
                     onChange={(v) => setStorageToggle('scrollLockEnabled', v)}
+                  />
+                  <Toggle
+                    id="logColumnsEnabled"
+                    label="Wide log columns"
+                    hint="Full-width Operation Logs with wrapping cells"
+                    checked={storageValues.logColumnsEnabled}
+                    onChange={(v) => setStorageToggle('logColumnsEnabled', v)}
                   />
                 </div>
 
