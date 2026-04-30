@@ -33,6 +33,36 @@ const COL_LABELS = {
 const MIN_COL_WIDTH = 50;
 const COL_WIDTHS_KEY = 'mdhUploadsColumnWidths';
 
+// Visual line-clamp for error messages — applied via CSS so it works whether or
+// not the source contains explicit newlines (most MDH errors are one long
+// single-line string). The "Show more" button only renders when a ref-based
+// measurement says the clamped element actually overflows.
+function ErrorText({ id, msg, isExpanded, onToggle }) {
+  const ref = useRef(null);
+  const [overflow, setOverflow] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setOverflow(el.scrollHeight - el.clientHeight > 1);
+  }, [msg]);
+  return (
+    <span class="uploads-error-text">
+      <span
+        ref={ref}
+        class={'uploads-error-text-msg' + (isExpanded ? '' : ' uploads-error-text-msg--clamped')}
+      >{msg}</span>
+      {(overflow || isExpanded) && (
+        <button
+          type="button"
+          class="uploads-error-toggle"
+          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          title={isExpanded ? 'Collapse error message' : 'Show full error message'}
+        >{isExpanded ? 'Show less' : 'Show more'}</button>
+      )}
+    </span>
+  );
+}
+
 export async function loadOperations() {
   try {
     loading.value = true;
@@ -339,6 +369,7 @@ export default function UploadsPanel() {
   const setSearch = (v) => { opsSearch.value = v; };
   const [statusFilter, setStatusFilter] = useState('All');
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+  const [expandedErrors, setExpandedErrors] = useState(() => new Set());
   const [page, setPage] = useState(0);
   const [colWidths, setColWidths] = useState(DEFAULT_COL_WIDTHS);
   const colWidthsRef = useRef(DEFAULT_COL_WIDTHS);
@@ -420,6 +451,26 @@ export default function UploadsPanel() {
       else next.add(key);
       return next;
     });
+  }
+
+  function toggleError(key) {
+    setExpandedErrors((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function renderErrorText(id, msg) {
+    return (
+      <ErrorText
+        id={id}
+        msg={msg}
+        isExpanded={expandedErrors.has(id)}
+        onToggle={() => toggleError(id)}
+      />
+    );
   }
 
   const stats = useMemo(() => {
@@ -529,7 +580,7 @@ export default function UploadsPanel() {
             <td colspan="8">
               <div class="uploads-error-inner">
                 <AiInsight input={errMsg} type="error" mode="overlay" />
-                <span class="uploads-error-text">{errMsg}</span>
+                {renderErrorText(op._id, errMsg)}
               </div>
             </td>
           </tr>
@@ -592,7 +643,7 @@ export default function UploadsPanel() {
             <td colspan="8">
               <div class="uploads-error-inner">
                 <AiInsight input={errMsg} type="error" mode="overlay" />
-                <span class="uploads-error-text">{errMsg}</span>
+                {renderErrorText(first._id, errMsg)}
               </div>
             </td>
           </tr>

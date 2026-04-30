@@ -1381,10 +1381,48 @@ body {
 .uploads-dataset-link:hover { text-decoration: underline; }
 
 .uploads-error-inner {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: flex-start; gap: 8px;
 }
 
-.uploads-error-text { flex: 1; min-width: 0; }
+.uploads-error-text {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+}
+
+.uploads-error-text-msg {
+  width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.uploads-error-text-msg--clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.uploads-error-toggle {
+  display: inline;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--danger);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.uploads-error-toggle:hover { opacity: 1; }
+.uploads-error-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 
 @keyframes ops-value-flash {
   0%   { background: rgba(66, 112, 219, 0.55); color: #fff; }
