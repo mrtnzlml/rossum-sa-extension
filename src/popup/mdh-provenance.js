@@ -221,16 +221,9 @@ export async function loadMdhHooksForQueue(domain, token, queueId) {
     `${domain}/api/v1/hooks?queue=${queueId}&page_size=100`,
     token,
   );
-  const candidates = (hooksResp?.results || []).filter(
-    (h) => h.active !== false && h.type === 'webhook',
-  );
-  if (candidates.length === 0) return [];
-  const details = await Promise.all(
-    candidates.map((h) =>
-      fetchJson(`${domain}/api/v1/hooks/${h.id}`, token).catch(() => null),
-    ),
-  );
-  return details.filter(isMdhHook);
+  return (hooksResp?.results || [])
+    .filter((h) => h.active !== false && h.type === 'webhook')
+    .filter(isMdhHook);
 }
 
 export function buildHookEntries(mdhHooks, queueId) {
