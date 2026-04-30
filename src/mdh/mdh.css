@@ -1403,6 +1403,27 @@ body {
 
 .uploads-row-group { cursor: pointer; }
 
+.uploads-group-chevron {
+  display: inline-block;
+  width: 10px;
+  margin-right: 6px;
+  font-size: 8px;
+  color: var(--text-secondary);
+  text-align: center;
+  vertical-align: middle;
+  transition: color 0.12s;
+}
+.uploads-row-group:hover .uploads-group-chevron { color: var(--text-primary); }
+
+.uploads-row-group.is-expanded td {
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-card));
+  font-weight: 600;
+}
+.uploads-row-group.is-expanded td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.uploads-row-group.is-expanded .uploads-group-chevron { color: var(--accent); }
+
 .uploads-group-count {
   display: inline-block;
   padding: 1px 6px; font-size: 10px; font-weight: 700;
@@ -1413,11 +1434,23 @@ body {
 }
 
 .uploads-row-failed .uploads-group-count { background: rgba(239, 68, 68, 0.18); color: var(--danger); }
+.uploads-row-failed .uploads-row-group.is-expanded td {
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg-card));
+}
+.uploads-row-failed .uploads-row-group.is-expanded td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
 
+/* Sub-rows: indented children that visibly hang under the expanded header. */
 .uploads-row-sub td { background: color-mix(in srgb, var(--bg-code) 35%, var(--bg-card)); }
-.uploads-row-sub td:first-child { box-shadow: inset 2px 0 0 var(--border); }
+.uploads-row-sub td:first-child {
+  padding-left: 28px;
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 50%, var(--border));
+}
 .uploads-row-failed .uploads-row-sub td { background: rgba(239, 68, 68, 0.03); }
-.uploads-row-failed .uploads-row-sub td:first-child { box-shadow: inset 2px 0 0 rgba(239, 68, 68, 0.35); }
+.uploads-row-failed .uploads-row-sub td:first-child {
+  box-shadow: inset 3px 0 0 rgba(239, 68, 68, 0.5);
+}
 
 .uploads-row-error .ai-insight-overlay {
   position: static; top: auto; right: auto;
