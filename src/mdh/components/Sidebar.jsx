@@ -300,6 +300,10 @@ export default function Sidebar() {
         >
           <button
             class="toolbar-menu-item"
+            onClick={() => { const n = menuOpenFor; setMenuOpenFor(null); navigator.clipboard.writeText(n); }}
+          >Copy name</button>
+          <button
+            class="toolbar-menu-item"
             onClick={() => { const n = menuOpenFor; setMenuOpenFor(null); showRenameModal(n); }}
           >Rename</button>
           <button
