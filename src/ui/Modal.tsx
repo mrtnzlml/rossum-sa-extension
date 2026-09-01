@@ -257,8 +257,14 @@ export default function Modal() {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const prevFocusRef = useRef<HTMLElement | null>(null);
 
-  // useLayoutEffect runs before child useEffects, so we can snapshot
-  // activeElement before any inner component (e.g. PromptBody) grabs focus.
+  // Still runs before any body-level useEffect (e.g. PromptBody's focus grab),
+  // so the activeElement snapshot below beats a post-paint focus steal. It does
+  // NOT run before a body-level useLayoutEffect any more: the body is a real
+  // child component, and Preact commits child layout effects before the
+  // parent's — so a body layout effect fires first. Harmless today because the
+  // one that exists (SearchIndexPanel's preset re-emit) early-returns on mount
+  // and never touches focus; a future body layout effect that does would land
+  // on the wrong side of this snapshot.
   useLayoutEffect(() => {
     if (!modal) return;
     prevFocusRef.current = document.activeElement as HTMLElement | null;
@@ -329,7 +335,18 @@ export default function Modal() {
           </span>
           <ModalClose onClick={closeModal} />
         </div>
-        {modal.render()}
+        {/* h(), not a direct call: invoking the body inline makes its hooks land on
+            THIS component's hook list, so a second modal reads the first one's state
+            out of a reused slot (verified: B rendered A's value). As a component it
+            gets its own instance, its own hooks, and unmount cleanup on close.
+            Identity contract: Preact keys the body on `modal.render`'s function
+            identity. closeModal() then openModal(title, sameFn) does NOT reset it —
+            the null in between never commits (updates batch), so Preact sees the
+            same type and reuses the instance (verified: mounts stays 1). Conversely,
+            calling openModal again on an ALREADY-OPEN modal with a fresh closure
+            remounts the body and drops its state, even to refresh only the title —
+            use setModalTitle for that, since it preserves `render` identity. */}
+        {h(modal.render, {})}
       </div>
     </div>
   );

@@ -3,8 +3,9 @@
 // End-to-end behaviour of the Search Indexes panel: the Copy button must put a
 // clean, create-ready definition on the clipboard (so it pastes straight into
 // the Create modal), and runtime state must live in badges, not the JSON.
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { h, render } from 'preact';
+import { useRef } from 'preact/hooks';
 
 vi.mock('../src/mdh/api.js');
 // Force a cache miss so the panel always loads from the (mocked) API.
@@ -14,21 +15,46 @@ vi.mock('../src/mdh/cache.js', () => ({ get: () => null, set: () => {}, invalida
 // reads editorRef.current.isValid()/getParsed() before it submits, so a stub that
 // never assigns the ref makes every submit silently short-circuit as "Invalid JSON".
 vi.mock('../src/mdh/components/JsonEditor.jsx', () => ({
+  // `useRef` (not a plain closure `let`) so the buffer survives a re-render of
+  // the parent modal: the real CodeMirror-backed component reads `value` only
+  // once at mount and mutates its own document thereafter via the imperative
+  // handle, and a stub that re-seeds from `value` on every render silently
+  // discards whatever a preset just wrote the moment the modal's own state
+  // (e.g. which preset is selected) changes.
   default: ({ value, editorRef }: any) => {
+    const bufRef = useRef(value);
     if (editorRef) {
       editorRef.current = {
+        getValue: () => bufRef.current,
+        setValue: (v: string) => {
+          bufRef.current = v;
+        },
         isValid: () => {
           try {
-            JSON.parse(value);
+            JSON.parse(bufRef.current);
             return true;
           } catch {
             return false;
           }
         },
-        getParsed: () => JSON.parse(value),
+        getParsed: () => JSON.parse(bufRef.current),
       };
     }
-    return <div class="json-editor-stub" />;
+    return (
+      <div class="json-editor-stub">
+        {/* Test-only escape hatch that mutates the buffer WITHOUT going through
+            setValue — the only way a test can simulate the user hand-typing over
+            what a preset wrote, which is exactly the distinction the dirty-editor
+            guard (Finding 1) has to make. Nothing in the real editor renders a
+            textarea; this exists only for the tests below. */}
+        <textarea
+          data-testid="json-editor-hand-edit"
+          onInput={(e: any) => {
+            bufRef.current = e.target.value;
+          }}
+        />
+      </div>
+    );
   },
 }));
 // IndexCard's Del goes through confirmModal, which renders into the modal HOST
@@ -43,9 +69,10 @@ vi.mock('../src/mdh/components/Modal.jsx', async (importOriginal) => {
 });
 
 import * as api from '../src/mdh/api.js';
-import Modal from '../src/mdh/components/Modal.jsx';
+import Modal, { closeModal } from '../src/mdh/components/Modal.jsx';
 import SearchIndexPanel from '../src/mdh/components/SearchIndexPanel.jsx';
 import { selectedCollection, activePanel, loading, error } from '../src/mdh/store.js';
+import { defaultPreset } from '../src/mdh/searchIndexPresets.js';
 
 const writeText = vi.fn().mockResolvedValue(undefined);
 
@@ -88,6 +115,16 @@ beforeEach(() => {
   activePanel.value = 'search-indexes';
   loading.value = false;
   error.value = null;
+});
+
+// `modalContent` is a module-level signal, and `mount()` never unmounts a
+// previous test's tree. A modal a test forgot to close stays open in that
+// signal, so the NEXT test's fresh `<Modal/>` renders it on first paint —
+// re-running a stale render closure's hooks (preset/paths/fields/etc.) whose
+// async effects then fire during a LATER test's window. Closing here, not just
+// where a test happens to click Cancel, keeps every test's modal state local.
+afterEach(() => {
+  closeModal();
 });
 
 describe('SearchIndexPanel — copy is put-ready', () => {
@@ -348,5 +385,614 @@ describe('SearchIndexPanel — collections V2 cannot address', () => {
 
     await vi.waitFor(() => expect(root.textContent).toContain('slash'));
     expect(api.listSearchIndexes).not.toHaveBeenCalled();
+  });
+});
+
+describe('SearchIndexPanel — presets', () => {
+  beforeEach(() => {
+    vi.mocked(api.listSearchIndexes).mockResolvedValue([listedIndex()]);
+    vi.mocked(api.putSearchIndex).mockResolvedValue({});
+  });
+
+  async function openCreate(root: HTMLElement) {
+    const create = [...root.querySelectorAll('button')].find((b) =>
+      b.textContent!.includes('Create'),
+    )!;
+    create.click();
+    await Promise.resolve();
+  }
+
+  // "Whole-word match" is the create-mode default: the chip is selected AND the
+  // editor already holds its output. The old seed was a bare
+  // {mappings:{dynamic:true}} — a plain dynamic index on lucene.standard, which
+  // is measurably NOT what the server's own `default` index does, so pressing
+  // Create without touching anything used to build something subtly different
+  // from the index every collection already gets.
+  it('opens with "Whole-word match" selected', async () => {
+    const root = mount();
+    await Promise.resolve();
+    await openCreate(root);
+    const chip = root.querySelector('[data-testid="preset-default"]')!;
+    expect(chip.getAttribute('aria-pressed')).toBe('true');
+    expect(root.querySelector('[data-testid="preset-fuzzy"]')!.getAttribute('aria-pressed')).toBe(
+      'false',
+    );
+  });
+
+  it('submits the full house-analyzer definition when nothing is touched', async () => {
+    const root = mount();
+    await Promise.resolve();
+    await openCreate(root);
+    const name = root.querySelector('input.input') as HTMLInputElement;
+    name.value = 'straight_through';
+    const submit = [...root.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Create Search Index',
+    )!;
+    submit.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const [, , definition] = vi.mocked(api.putSearchIndex).mock.calls[0] as [string, string, any];
+    expect(definition.mappings).toEqual({ dynamic: true });
+    expect(definition.analyzer).toBe('default_whitespace_lowercase');
+    expect(definition.searchAnalyzer).toBe('default_whitespace_lowercase');
+    expect(definition.analyzers[0].charFilters[0].mappings).toEqual({
+      '.': ' ',
+      '/': '',
+      '\\': '',
+      '-': ' ',
+      ',': ' ',
+    });
+  });
+
+  // The wizards render their Segmented with the `tabs` variant; the preset row
+  // uses the same one so the modal does not invent a second control style.
+  it('renders the preset row as tabs, like the import and export wizards', async () => {
+    const root = mount();
+    await Promise.resolve();
+    await openCreate(root);
+    expect(root.querySelector('[data-testid="preset-row"]')!.className).toContain('seg-tabs');
+  });
+
+  it('offers both presets in create mode', async () => {
+    const root = mount();
+    await Promise.resolve();
+    await openCreate(root);
+    const labels = [...root.querySelectorAll('[data-testid="preset-row"] button')].map(
+      (n) => n.textContent,
+    );
+    expect(labels).toEqual(['Whole-word match', 'Fuzzy match']);
+  });
+
+  it('writes the fuzzy definition into the editor and submits exactly that', async () => {
+    // A field has to be chosen, or the submit-time unmatchable-definition guard
+    // (Finding 2) refuses it — dynamic:false with no fields can never match
+    // anything. Discovery rejected so the deterministic free-text fallback is
+    // the field source, same pattern as the "field picker" tests below.
+    vi.mocked(api.aggregate).mockRejectedValue(new Error('no discovery'));
+    const root = mount();
+    await Promise.resolve();
+    await openCreate(root);
+
+    const name = root.querySelector('input.input') as HTMLInputElement;
+    name.value = 'vendor_fuzzy';
+    (root.querySelector('[data-testid="preset-fuzzy"]') as HTMLElement).click();
+    await vi.waitFor(() => expect(vi.mocked(api.aggregate)).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-testid="field-fallback"]')).not.toBeNull(),
+    );
+
+    const path = root.querySelector('[data-testid="field-fallback"]') as HTMLInputElement;
+    path.value = 'vendor_name';
+    path.dispatchEvent(new Event('change', { bubbles: true }));
+    await Promise.resolve();
+
+    const submit = [...root.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Create Search Index',
+    )!;
+    submit.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const [, indexName, definition] = vi.mocked(api.putSearchIndex).mock.calls[0] as [
+      string,
+      string,
+      any,
+    ];
+    expect(indexName).toBe('vendor_fuzzy');
+    expect(definition.analyzers[0].tokenFilters).toEqual([
+      { type: 'lowercase' },
+      { type: 'icuFolding' },
+    ]);
+  });
+
+  // An Edit modal opens on a customer's existing definition. A chip that
+  // overwrites it in one click is "never delete customer data" in a costume.
+  it('shows no presets in edit mode', async () => {
+    const root = mount();
+    // Unlike openCreate above, Edit needs a rendered IndexCard, which needs the
+    // mocked listSearchIndexes() to resolve and flow through a state update —
+    // more than one microtask tick, so this waits on the condition rather than
+    // assuming a fixed number of `await Promise.resolve()` flushes it.
+    await vi.waitFor(() => expect(root.querySelector('.action-edit')).not.toBeNull());
+    const edit = root.querySelector('.action-edit') as HTMLElement;
+    edit.click();
+    await Promise.resolve();
+    expect(root.querySelector('[data-testid="preset-row"]')).toBeNull();
+  });
+});
+
+describe('SearchIndexPanel — field picker', () => {
+  beforeEach(() => {
+    vi.mocked(api.listSearchIndexes).mockResolvedValue([listedIndex()]);
+    vi.mocked(api.putSearchIndex).mockResolvedValue({});
+    vi.mocked(api.aggregate).mockResolvedValue({
+      result: [
+        {
+          f0: [
+            { _id: 'vendor_name', types: ['string'] },
+            { _id: 'vat', types: ['string'] },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('offers discovered paths once the fuzzy preset is chosen', async () => {
+    const root = mount();
+    await Promise.resolve();
+    const create = [...root.querySelectorAll('button')].find((b) =>
+      b.textContent!.includes('Create'),
+    )!;
+    create.click();
+    await Promise.resolve();
+    (root.querySelector('[data-testid="preset-fuzzy"]') as HTMLElement).click();
+    // The discovery aggregate runs from a `useEffect`, which Preact flushes
+    // after paint (via requestAnimationFrame), not on the next microtask — a
+    // fixed number of `await Promise.resolve()` ticks never observes it.
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-testid="field-picker"]')).not.toBeNull(),
+    );
+  });
+
+  it('names the chosen fields in the submitted definition, with the keyword alternate', async () => {
+    // Discovery off, so the fallback input is the field source for this test.
+    vi.mocked(api.aggregate).mockRejectedValue(new Error('no discovery'));
+    const root = mount();
+    await Promise.resolve();
+    const create = [...root.querySelectorAll('button')].find((b) =>
+      b.textContent!.includes('Create'),
+    )!;
+    create.click();
+    await Promise.resolve();
+    (root.querySelector('[data-testid="preset-fuzzy"]') as HTMLElement).click();
+    // Prove discovery actually ran (and can therefore actually fail) before
+    // touching the fallback — the pre-effect initial render looks identical to
+    // the post-failure one, so asserting on the fallback alone after a fixed
+    // number of ticks would pass even with the discovery effect deleted.
+    await vi.waitFor(() => expect(vi.mocked(api.aggregate)).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-testid="field-fallback"]')).not.toBeNull(),
+    );
+
+    // Set the field through the documented free-text fallback rather than the
+    // combobox keyboard flow: MatchKeyPicker has its own tests, and a window
+    // test-seam has no business shipping in the bundle.
+    const path = root.querySelector('[data-testid="field-fallback"]') as HTMLInputElement;
+    path.value = 'vendor_name';
+    path.dispatchEvent(new Event('change', { bubbles: true }));
+    await Promise.resolve();
+
+    const alt = root.querySelector('[data-testid="exact-alternate"]') as HTMLInputElement;
+    alt.checked = true;
+    alt.dispatchEvent(new Event('change', { bubbles: true }));
+    await Promise.resolve();
+
+    const name = root.querySelector('input.input') as HTMLInputElement;
+    name.value = 'vendor_fuzzy';
+    const submit = [...root.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Create Search Index',
+    )!;
+    submit.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const [, , definition] = vi.mocked(api.putSearchIndex).mock.calls[0] as [string, string, any];
+    expect(Object.keys(definition.mappings.fields)).toEqual(['vendor_name']);
+    expect(definition.mappings.fields.vendor_name.multi.exact.analyzer).toBe('lucene.keyword');
+  });
+
+  // Discovery is a convenience. Losing it must not stop anyone creating an index.
+  it('falls back to a free-text path when discovery fails', async () => {
+    vi.mocked(api.aggregate).mockRejectedValue(new Error('nope'));
+    const root = mount();
+    await Promise.resolve();
+    const create = [...root.querySelectorAll('button')].find((b) =>
+      b.textContent!.includes('Create'),
+    )!;
+    create.click();
+    await Promise.resolve();
+    (root.querySelector('[data-testid="preset-fuzzy"]') as HTMLElement).click();
+    // Prove discovery actually ran (and can therefore actually fail) before
+    // asserting on the fallback. Without this, the pre-effect initial render
+    // (paths.value: null, paths.loading: false) renders the identical fallback
+    // markup the post-failure state does, so the assertion below would pass
+    // unchanged even with the whole discovery `useEffect` deleted.
+    await vi.waitFor(() => expect(vi.mocked(api.aggregate)).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-testid="field-fallback"]')).not.toBeNull(),
+    );
+  });
+});
+
+// Finding 1 (Important, 2026-08-31 review): the field-picker effect used to call
+// editorRef.current.setValue(...) unconditionally, bypassing the dirty guard the
+// preset chips already had. Reproduced by the reviewer: pick Fuzzy match,
+// hand-edit the JSON, tick one more field — the hand-edit used to be silently
+// destroyed. These tests pin the fix and the surrounding inline-confirm UI that
+// had no coverage at all before this pass (Finding 6).
+describe('SearchIndexPanel — dirty editor guard', () => {
+  beforeEach(() => {
+    vi.mocked(api.listSearchIndexes).mockResolvedValue([listedIndex()]);
+    vi.mocked(api.putSearchIndex).mockResolvedValue({});
+  });
+
+  async function openCreate(root: HTMLElement) {
+    const create = [...root.querySelectorAll('button')].find((b) =>
+      b.textContent!.includes('Create'),
+    )!;
+    create.click();
+    await Promise.resolve();
+  }
+
+  function handEdit(root: HTMLElement, json: string) {
+    // Scoped to the open dialog: a READY index card in the list behind the modal
+    // renders its own (read-only, in the real component) JsonEditor instance
+    // through the very same stub, so an unscoped query can silently hit the
+    // card's textarea instead of the modal's — the card is earlier in DOM order.
+    const dialog = root.querySelector('[role="dialog"]')!;
+    const edit = dialog.querySelector(
+      '[data-testid="json-editor-hand-edit"]',
+    ) as HTMLTextAreaElement;
+    edit.value = json;
+    edit.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  it('asks before replacing a hand-edited editor when a preset chip is clicked again', async () => {
+    const root = mount();
+    await Promise.resolve();
+    await openCreate(root);
+    (root.querySelector('[data-testid="preset-fuzzy"]') as HTMLElement).click();
+    await Promise.resolve();
+
+    handEdit(
+      root,
+      JSON.stringify({ mappings: { dynamic: false, fields: { extra: { type: 'number' } } } }),
+    );
+    await Promise.resolve();
+
+    (root.querySelector('[data-testid="preset-default"]') as HTMLElement).click();
+    await Promise.resolve();
+
+    expect(root.querySelector('[data-testid="preset-row"]')).toBeNull();
+    expect(root.textContent).toContain('Replace your edits with this preset?');
+    // Nothing was submitted yet — asking is not the same as replacing.
+    expect(api.putSearchIndex).not.toHaveBeenCalled();
+  });
+
+  it('"Keep mine" leaves the hand-edited definition untouched', async () => {
+    const root = mount();
+    await Promise.resolve();
+    await openCreate(root);
+    (root.querySelector('[data-testid="preset-fuzzy"]') as HTMLElement).click();
+    await Promise.resolve();
+
+    const handEdited = { mappings: { dynamic: false, fields: { extra: { type: 'number' } } } };
+    handEdit(root, JSON.stringify(handEdited));
+    await Promise.resolve();
+
+    (root.querySelector('[data-testid="preset-default"]') as HTMLElement).click();
+    await Promise.resolve();
+
+    const keepMine = [...root.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Keep mine',
+    )!;
+    keepMine.click();
+    await Promise.resolve();
+
+    // The confirm is gone and the ordinary preset row is back.
+    expect(root.querySelector('[data-testid="preset-row"]')).not.toBeNull();
+
+    const name = root.querySelector('input.input') as HTMLInputElement;
+    name.value = 'vendor_fuzzy';
+    const submit = [...root.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Create Search Index',
+    )!;
+    submit.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const [, , definition] = vi.mocked(api.putSearchIndex).mock.calls[0] as [string, string, any];
+    expect(definition).toEqual(handEdited);
+  });
+
+  it('"Replace" overwrites the hand-edited definition with the chosen preset', async () => {
+    const root = mount();
+    await Promise.resolve();
+    await openCreate(root);
+    (root.querySelector('[data-testid="preset-fuzzy"]') as HTMLElement).click();
+    await Promise.resolve();
+
+    handEdit(
+      root,
+      JSON.stringify({ mappings: { dynamic: false, fields: { extra: { type: 'number' } } } }),
+    );
+    await Promise.resolve();
+
+    (root.querySelector('[data-testid="preset-default"]') as HTMLElement).click();
+    await Promise.resolve();
+
+    const replace = [...root.querySelectorAll('button')].find((b) => b.textContent === 'Replace')!;
+    replace.click();
+    await Promise.resolve();
+
+    const name = root.querySelector('input.input') as HTMLInputElement;
+    name.value = 'vendor_default';
+    const submit = [...root.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Create Search Index',
+    )!;
+    submit.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const [, , definition] = vi.mocked(api.putSearchIndex).mock.calls[0] as [string, string, any];
+    expect(definition).toEqual(defaultPreset());
+  });
+
+  // The reviewer's exact repro: Fuzzy match, hand-edit, then use the field
+  // picker rather than a preset chip. Before the fix this silently destroyed the
+  // hand-edit and reset lastPresetJson with no record that it had happened.
+  it('routes a field-picker change through the same dirty guard as a preset click', async () => {
+    vi.mocked(api.aggregate).mockRejectedValue(new Error('no discovery'));
+    const root = mount();
+    await Promise.resolve();
+    await openCreate(root);
+    (root.querySelector('[data-testid="preset-fuzzy"]') as HTMLElement).click();
+    await vi.waitFor(() => expect(vi.mocked(api.aggregate)).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-testid="field-fallback"]')).not.toBeNull(),
+    );
+
+    const handEdited = { mappings: { dynamic: false, fields: { extra: { type: 'number' } } } };
+    handEdit(root, JSON.stringify(handEdited));
+    await Promise.resolve();
+
+    // Tick one more field via the picker, exactly as in the reviewer's repro.
+    const path = root.querySelector('[data-testid="field-fallback"]') as HTMLInputElement;
+    path.value = 'vendor_name';
+    path.dispatchEvent(new Event('change', { bubbles: true }));
+    await Promise.resolve();
+
+    // Asked, not silently overwritten.
+    expect(root.textContent).toContain('Replace your edits with this preset?');
+
+    const keepMine = [...root.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Keep mine',
+    )!;
+    keepMine.click();
+    await Promise.resolve();
+
+    const name = root.querySelector('input.input') as HTMLInputElement;
+    name.value = 'vendor_fuzzy';
+    const submit = [...root.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Create Search Index',
+    )!;
+    submit.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const [, , definition] = vi.mocked(api.putSearchIndex).mock.calls[0] as [string, string, any];
+    // The submitted definition is still the hand-edit — the picker's field never
+    // made it in, because the user chose to keep their own work.
+    expect(definition).toEqual(handEdited);
+  });
+});
+
+// Finding 2 (Important, 2026-08-31 review): {mappings: {dynamic: false}} with no
+// fields is valid V2 input and builds a READY index that matches zero documents
+// forever — a fifth silent-failure mode inside the feature built to remove four.
+// Checked at submit time on the definition's SHAPE, not on which preset produced
+// it, so a hand-typed definition with the same flaw is caught too.
+describe('SearchIndexPanel — unmatchable-definition guard', () => {
+  beforeEach(() => {
+    vi.mocked(api.listSearchIndexes).mockResolvedValue([listedIndex()]);
+    vi.mocked(api.putSearchIndex).mockResolvedValue({});
+  });
+
+  it('refuses to submit the fuzzy preset with no fields chosen, and explains why', async () => {
+    vi.mocked(api.aggregate).mockRejectedValue(new Error('no discovery'));
+    const root = mount();
+    await Promise.resolve();
+    const create = [...root.querySelectorAll('button')].find((b) =>
+      b.textContent!.includes('Create'),
+    )!;
+    create.click();
+    await Promise.resolve();
+
+    const name = root.querySelector('input.input') as HTMLInputElement;
+    name.value = 'vendor_fuzzy';
+    (root.querySelector('[data-testid="preset-fuzzy"]') as HTMLElement).click();
+    await Promise.resolve();
+
+    const submit = [...root.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Create Search Index',
+    )!;
+    submit.click();
+    await Promise.resolve();
+
+    expect(api.putSearchIndex).not.toHaveBeenCalled();
+    expect(root.querySelector('.input-hint')!.textContent).toContain('can never match anything');
+  });
+
+  it('refuses a hand-typed definition with the same shape — the guard is general, not preset-specific', async () => {
+    const root = mount();
+    await Promise.resolve();
+    const create = [...root.querySelectorAll('button')].find((b) =>
+      b.textContent!.includes('Create'),
+    )!;
+    create.click();
+    await Promise.resolve();
+
+    const name = root.querySelector('input.input') as HTMLInputElement;
+    name.value = 'vendor_hand';
+    // Scoped to the open dialog — see the comment on the shared handEdit() helper
+    // above: an already-rendered READY card uses the same JsonEditor stub and
+    // sits earlier in DOM order, so an unscoped query can hit its textarea instead.
+    const dialog = root.querySelector('[role="dialog"]')!;
+    const edit = dialog.querySelector(
+      '[data-testid="json-editor-hand-edit"]',
+    ) as HTMLTextAreaElement;
+    edit.value = JSON.stringify({ mappings: { dynamic: false } });
+    edit.dispatchEvent(new Event('input', { bubbles: true }));
+    await Promise.resolve();
+
+    const submit = [...root.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Create Search Index',
+    )!;
+    submit.click();
+    await Promise.resolve();
+
+    expect(api.putSearchIndex).not.toHaveBeenCalled();
+  });
+
+  it('allows dynamic:true with no fields — dynamic mapping can still match', async () => {
+    const root = mount();
+    await Promise.resolve();
+    const create = [...root.querySelectorAll('button')].find((b) =>
+      b.textContent!.includes('Create'),
+    )!;
+    create.click();
+    await Promise.resolve();
+
+    // Untouched seed is exactly {"mappings":{"dynamic":true}} — the "Same as
+    // default"-shaped case the guard must never block.
+    const name = root.querySelector('input.input') as HTMLInputElement;
+    name.value = 'vendor_default';
+    const submit = [...root.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Create Search Index',
+    )!;
+    submit.click();
+    await Promise.resolve();
+
+    expect(api.putSearchIndex).toHaveBeenCalled();
+  });
+});
+
+describe('SearchIndexPanel — check', () => {
+  it('offers Check on a READY index', async () => {
+    vi.mocked(api.listSearchIndexes).mockResolvedValue([listedIndex()]);
+    const root = mount();
+    await vi.waitFor(() => expect(root.querySelector('.action-check')).not.toBeNull());
+  });
+
+  // A $search against a building index returns [] with code "ok". Without this
+  // guard Check would report "no matches" for an index that is merely unfinished.
+  it('offers no Check while the index is still building', async () => {
+    vi.mocked(api.listSearchIndexes).mockResolvedValue([
+      listedIndex({ status: 'PENDING_CREATE', queryable: false }),
+    ]);
+    const root = mount();
+    // Wait for the card itself, then assert the Check button is absent from it —
+    // otherwise this passes vacuously before the list has even rendered.
+    await vi.waitFor(() => expect(root.querySelector('.record-card')).not.toBeNull());
+    expect(root.querySelector('.action-check')).toBeNull();
+  });
+
+  it('runs one read-only aggregate against that index and shows the hits', async () => {
+    vi.mocked(api.listSearchIndexes).mockResolvedValue([listedIndex()]);
+    vi.mocked(api.aggregate).mockResolvedValue({
+      result: [{ name: 'Acme Metallwerke', score: 2.9 }],
+    });
+    const root = mount();
+    // vi.waitFor only retries on a THROW — a predicate that just returns
+    // querySelector's result would resolve with null on the first (empty) check
+    // rather than waiting for the async list load, so assert inside it.
+    await vi.waitFor(() => expect(root.querySelector('.action-check')).not.toBeNull());
+    (root.querySelector('.action-check') as HTMLElement).click();
+    await Promise.resolve();
+
+    const input = root.querySelector('[data-testid="check-value"]') as HTMLInputElement;
+    input.value = 'acme';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    // Flush the controlled-input re-render before clicking Run, or Run's click
+    // handler still closes over the pre-input (stale) state.
+    await Promise.resolve();
+    (root.querySelector('[data-testid="check-run"]') as HTMLElement).click();
+
+    const [collection, pipeline] = vi.mocked(api.aggregate).mock.calls[0];
+    expect(collection).toBe('vendors');
+    expect(pipeline.map((s: any) => Object.keys(s)[0])).toEqual([
+      '$search',
+      '$limit',
+      '$addFields',
+    ]);
+    expect((pipeline[0] as any).$search.index).toBe('default');
+    // The result reaches the DOM only after the mocked aggregate promise
+    // resolves and Preact re-renders — vi.waitFor rather than a guessed tick
+    // count, since the guess for a nested async chain is easy to get wrong.
+    await vi.waitFor(() => expect(root.textContent).toContain('Acme Metallwerke'));
+  });
+
+  // indexedPaths returns [] for a dynamic index, so without the path input the
+  // pipeline would carry an empty path array and match nothing.
+  it('asks for a path when the index declares no fields', async () => {
+    vi.mocked(api.listSearchIndexes).mockResolvedValue([
+      listedIndex({ definition: { mappings: { dynamic: true } } }),
+    ]);
+    vi.mocked(api.aggregate).mockResolvedValue({ result: [] });
+    const root = mount();
+    await vi.waitFor(() => expect(root.querySelector('.action-check')).not.toBeNull());
+    (root.querySelector('.action-check') as HTMLElement).click();
+    await Promise.resolve();
+
+    const path = root.querySelector('[data-testid="check-path"]') as HTMLInputElement;
+    path.value = 'vendor_name';
+    path.dispatchEvent(new Event('input', { bubbles: true }));
+    // Same re-render flush as above — otherwise Run reads the empty initial path.
+    await Promise.resolve();
+    (root.querySelector('[data-testid="check-run"]') as HTMLElement).click();
+
+    const [, pipeline] = vi.mocked(api.aggregate).mock.calls[0];
+    expect((pipeline[0] as any).$search.text.path).toBe('vendor_name');
+  });
+
+  it('reports an empty result as an outcome, not an error', async () => {
+    vi.mocked(api.listSearchIndexes).mockResolvedValue([listedIndex()]);
+    vi.mocked(api.aggregate).mockResolvedValue({ result: [] });
+    const root = mount();
+    await vi.waitFor(() => expect(root.querySelector('.action-check')).not.toBeNull());
+    (root.querySelector('.action-check') as HTMLElement).click();
+    await Promise.resolve();
+    (root.querySelector('[data-testid="check-run"]') as HTMLElement).click();
+    await vi.waitFor(() => expect(root.textContent).toContain('No match'));
+    expect(error.value).toBeNull();
+  });
+
+  // A network failure, an auth failure, or a malformed-definition rejection is
+  // not a miss. Collapsing it into "No match" would make Check a new silent
+  // failure of exactly the kind it exists to catch — so a rejected aggregate
+  // must produce a distinct outcome, and must never touch the panel-level
+  // error signal (this strip's failure is local to the card, not the panel).
+  it('reports a failed check as an error, not as "No match", and leaves the panel error alone', async () => {
+    vi.mocked(api.listSearchIndexes).mockResolvedValue([listedIndex()]);
+    vi.mocked(api.aggregate).mockRejectedValue(new Error('network error'));
+    const root = mount();
+    await vi.waitFor(() => expect(root.querySelector('.action-check')).not.toBeNull());
+    (root.querySelector('.action-check') as HTMLElement).click();
+    await Promise.resolve();
+    (root.querySelector('[data-testid="check-run"]') as HTMLElement).click();
+    await vi.waitFor(() => expect(root.textContent).toContain('could not run'));
+    expect(root.textContent).not.toContain('No match');
+    expect(error.value).toBeNull();
   });
 });

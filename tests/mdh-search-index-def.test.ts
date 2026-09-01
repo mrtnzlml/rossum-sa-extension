@@ -7,6 +7,7 @@ import {
   summarizeDefinition,
   splitPastedDefinition,
   firstValidationLine,
+  matchesNothing,
 } from '../src/mdh/searchIndexDef.js';
 
 describe('toSearchIndexDefinition', () => {
@@ -208,6 +209,36 @@ describe('splitPastedDefinition', () => {
   it('returns the input untouched when it is not an object', () => {
     expect(splitPastedDefinition(null)).toEqual({ name: null, definition: null });
     expect(splitPastedDefinition([1])).toEqual({ name: null, definition: [1] });
+  });
+});
+
+// Finding 2, 2026-08-31 review: {mappings: {dynamic: false}} with no fields is
+// valid V2 input, and builds a READY index that matches zero documents forever —
+// a fifth silent-failure mode inside the feature built to remove four.
+describe('matchesNothing', () => {
+  it('is true for dynamic:false with no fields key at all', () => {
+    expect(matchesNothing({ mappings: { dynamic: false } })).toBe(true);
+  });
+
+  it('is true for dynamic:false with an empty fields object', () => {
+    expect(matchesNothing({ mappings: { dynamic: false, fields: {} } })).toBe(true);
+  });
+
+  it('is false once at least one field is mapped', () => {
+    expect(matchesNothing({ mappings: { dynamic: false, fields: { name: {} } } })).toBe(false);
+  });
+
+  it('is false whenever dynamic is truthy, fields or not', () => {
+    expect(matchesNothing({ mappings: { dynamic: true } })).toBe(false);
+    expect(matchesNothing({ mappings: { dynamic: true, fields: {} } })).toBe(false);
+  });
+
+  it('is true rather than throwing on junk', () => {
+    expect(matchesNothing(null)).toBe(true);
+    expect(matchesNothing({})).toBe(true);
+    expect(matchesNothing({ mappings: 'nope' })).toBe(true);
+    // fields as an array (not a mapping object) counts as "no fields".
+    expect(matchesNothing({ mappings: { dynamic: false, fields: [] } })).toBe(true);
   });
 });
 

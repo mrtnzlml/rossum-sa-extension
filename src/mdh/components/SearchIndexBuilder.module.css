@@ -1,0 +1,84 @@
+/* Styles for the search-index builder and its cards' Check strip. Most rules here
+   are layout only — the preset row is the shared `Segmented`, the copy button is
+   the shared `CopyButton` — but `.snippetCode` and `.checkStrip` also carry a
+   background, border and radius of their own, so this file is not layout-only
+   any more. A CSS Module rather than the console.css monolith, per the
+   design-system direction. The module sheet is linked AFTER the monolith, so a
+   rule here outranks a call-site class at equal specificity: this file must not
+   own the width of anything a call site positions. */
+
+.presetConfirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pickerRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pickerHint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.altLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.checkStrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.checkEmpty {
+  flex-basis: 100%;
+  color: var(--text-secondary);
+}
+
+/* A failed request is not the same quiet outcome as a genuine miss, and reads
+   as distinct from .checkEmpty via --danger-fg — the token console.css defines
+   for exactly this (both the light and dark blocks carry the full --danger /
+   --danger-hover / --danger-bg / --danger-fg / --danger-border family). */
+.checkError {
+  flex-basis: 100%;
+  color: var(--danger-fg);
+  font-weight: 500;
+}
+
+.checkRows {
+  flex-basis: 100%;
+  /* Both needed at a narrow width, live-measured with a scratchpad harness:
+     JSON.stringify(r) is one long run with almost no spaces, so plain
+     white-space:normal has nowhere to break and the <li> refuses to shrink
+     below that run's width — min-width:0 lets the flex item shrink, and
+     overflow-wrap:anywhere lets the text itself wrap mid-token once it does. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.checkScore {
+  display: inline-block;
+  min-width: 42px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}

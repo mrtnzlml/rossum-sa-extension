@@ -100,6 +100,25 @@ export function summarizeDefinition(definition: any): string {
     : `${fields.length} ${label}: ${shown}`;
 }
 
+// General submit-time guard, not preset-specific: a definition with dynamic
+// mapping off and no non-empty `fields` object can never match anything —
+// {mappings: {dynamic: false}} is valid input and builds a READY index that
+// matches zero documents, forever, with nothing anywhere saying so. Checking the
+// SHAPE rather than which preset produced it also catches a hand-typed
+// definition with the same flaw, which a preset-specific check would not.
+export function matchesNothing(definition: any): boolean {
+  const mappings = definition && typeof definition === 'object' ? definition.mappings : null;
+  if (!mappings || typeof mappings !== 'object') return true;
+  if (mappings.dynamic) return false;
+  const fields = mappings.fields;
+  const hasFields =
+    fields &&
+    typeof fields === 'object' &&
+    !Array.isArray(fields) &&
+    Object.keys(fields).length > 0;
+  return !hasFields;
+}
+
 // A body carrying `indexName` is a 422 (`extra_forbidden`) — the name lives in
 // the URL now. Users have snippets copied from the build that emitted the flat
 // {indexName, mappings} shape, so lift the name out rather than reject the paste.

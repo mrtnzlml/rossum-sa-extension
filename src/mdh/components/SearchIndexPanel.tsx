@@ -1,5 +1,11 @@
 import { h, Fragment } from 'preact';
-import { useState, useEffect, useRef } from 'preact/hooks';
+import { useState, useEffect, useLayoutEffect, useRef } from 'preact/hooks';
+// Aliased to match the same import in the sibling IndexPanel.tsx, where
+// useOperationStatus() returns a `track` that would collide with this one if
+// unaliased. This file's own poller, useIndexReconcile(), returns
+// `{ watch, stop }` — no `track` at all — so there is no collision here today;
+// the alias only pre-empts one if useOperationStatus is ever added to this file too.
+import { track as trackUsage } from '../../usage/track.js';
 import { selectedCollection, activePanel, loading, error } from '../store.js';
 import { openModal, closeModal, ModalBody, ModalActions, ModalFieldLabel } from './Modal.jsx';
 import JsonEditor from './JsonEditor.jsx';
@@ -12,12 +18,19 @@ import {
   summarizeDefinition,
   splitPastedDefinition,
   firstValidationLine,
+  matchesNothing,
 } from '../searchIndexDef.js';
 import { formatTime, parseUtcTimestamp } from '../relativeTime.js';
 import useIndexReconcile from '../hooks/useIndexReconcile.js';
 import * as api from '../api.js';
 import * as cache from '../cache.js';
 import type { JsonEditorHandle } from './JsonEditor.jsx';
+import { defaultPreset, fuzzyPreset } from '../searchIndexPresets.js';
+import { indexedPaths, checkPipeline } from '../searchIndexCheck.js';
+import { Segmented } from './ImportControls.jsx';
+import MatchKeyPicker from './MatchKeyPicker.jsx';
+import { discoverLeafPaths } from '../columnDiscovery.js';
+import styles from './SearchIndexBuilder.module.css';
 
 export default function SearchIndexPanel() {
   const [indexes, setIndexes] = useState<any[]>([]);
@@ -81,15 +94,112 @@ export default function SearchIndexPanel() {
   }) {
     const editorRef: { current: JsonEditorHandle | null } = { current: null };
     const isEdit = mode === 'edit';
-    const initialJson = JSON.stringify(
-      initialDefinition ?? { mappings: { dynamic: true } },
-      null,
-      2,
-    );
+    // Create mode seeds with the SAME definition the server's own `default` index
+    // carries, not a bare {mappings:{dynamic:true}}. The bare form is a plain
+    // dynamic index on lucene.standard — measurably not what `default` does — so
+    // seeding it meant the out-of-the-box path silently produced different
+    // matching behaviour from the index every collection already gets.
+    const initialJson = JSON.stringify(initialDefinition ?? defaultPreset(), null, 2);
 
     openModal(isEdit ? 'Edit Search Index' : 'Create Search Index', () => {
       const hintRef = useRef<HTMLDivElement | null>(null);
+      // Uncontrolled on purpose: Preact's controlled-input diffing compares
+      // `value` against the LIVE DOM value, and this closure re-renders on every
+      // preset/field/checkbox change — a controlled input would force-reset a
+      // name the user was mid-typing back to `initialName`.
       const nameRef = useRef<HTMLInputElement | null>(null);
+      // Create mode opens ON the default preset, and the editor already holds its
+      // output — so the chip reflects what is actually in the box rather than
+      // leaving both unset.
+      const [preset, setPreset] = useState<'default' | 'fuzzy' | null>(isEdit ? null : 'default');
+      // The exact string the last preset wrote. Anything else in the editor is the
+      // user's own work, and replacing it has to be asked about first. Seeded in
+      // create mode because the seed IS the default preset's output.
+      const lastPresetJson = useRef<string | null>(isEdit ? null : initialJson);
+      const [pendingPreset, setPendingPreset] = useState<'default' | 'fuzzy' | null>(null);
+      const [fields, setFields] = useState<string[]>([]);
+      const [exactAlternate, setExactAlternate] = useState(false);
+      const [paths, setPaths] = useState<{ loading: boolean; value: string[] | null }>({
+        loading: false,
+        value: null,
+      });
+
+      // Only once the fuzzy preset is chosen — a modal must not fire an aggregate
+      // just by opening. `[]` for the filter stages is the "every path" case;
+      // buildLevelPipeline spreads the array, so it needs no special handling.
+      // The `controller.abort()` cleanup below now actually fires on close:
+      // Modal.tsx (src/ui/Modal.tsx) renders the body via `h(modal.render, {})`
+      // rather than calling it as a plain function, so this closure is a real
+      // component instance with its own hooks and gets unmount cleanup when
+      // `closeModal()` runs — an in-flight discovery is aborted rather than left
+      // running past a closed modal. The cleanup also fires on every `preset`
+      // change (it's this effect's own dependency), not only on unmount.
+      useEffect(() => {
+        if (preset !== 'fuzzy' || paths.value || paths.loading) return undefined;
+        const controller = new AbortController();
+        setPaths({ loading: true, value: null });
+        discoverLeafPaths(selectedCollection.value as string, [], {
+          aggregate: api.aggregate,
+          signal: controller.signal,
+        })
+          .then((found) => setPaths({ loading: false, value: found }))
+          .catch(() => setPaths({ loading: false, value: null }));
+        return () => controller.abort();
+      }, [preset]);
+
+      // Shared by the preset chips and the field-picker effect below: untouched
+      // means blank, still whatever the LAST preset wrote, or still the modal's
+      // own boilerplate seed — none of those are the user's work. The seed has to
+      // be in this list too, or the very first preset pick on a fresh Create
+      // modal always asks to confirm overwriting nothing.
+      function isEditorUntouched() {
+        const current = (editorRef.current?.getValue() || '').trim();
+        return (
+          current === '' ||
+          current === (lastPresetJson.current || '').trim() ||
+          current === initialJson.trim()
+        );
+      }
+
+      // Re-emit whenever the shape of the request changes, so a CLEAN editor always
+      // shows what will actually be sent. useLayoutEffect (not useEffect): this has
+      // to land in the SAME commit as the field/checkbox change, or a submit that
+      // follows immediately after reads the editor's still-stale buffer — plain
+      // useEffect is deferred to a post-paint task and loses that race.
+      // A DIRTY editor (the user hand-edited what the preset wrote) must not be
+      // overwritten just because the picker changed — that is the same "replace my
+      // edits?" question a preset click asks, so it is routed through the same
+      // pendingPreset confirmation rather than silently destroying the edit.
+      useLayoutEffect(() => {
+        if (preset !== 'fuzzy') return;
+        if (!isEditorUntouched()) {
+          setPendingPreset('fuzzy');
+          return;
+        }
+        const json = JSON.stringify(fuzzyPreset(fields, { exactAlternate }), null, 2);
+        editorRef.current?.setValue(json);
+        lastPresetJson.current = json;
+      }, [fields, exactAlternate]);
+
+      function definitionFor(id: 'default' | 'fuzzy') {
+        return id === 'default' ? defaultPreset() : fuzzyPreset(fields, { exactAlternate });
+      }
+
+      function writePreset(id: 'default' | 'fuzzy') {
+        const json = JSON.stringify(definitionFor(id), null, 2);
+        editorRef.current?.setValue(json);
+        lastPresetJson.current = json;
+        setPreset(id);
+        setPendingPreset(null);
+      }
+
+      function choosePreset(id: 'default' | 'fuzzy') {
+        // NOT confirmModal: `modalContent` is a single signal, so a confirm dialog
+        // REPLACES this modal and destroys the editor contents the guard exists to
+        // protect. The confirmation is inline, in the preset row's place.
+        if (isEditorUntouched()) writePreset(id);
+        else setPendingPreset(id);
+      }
 
       async function handleSubmit() {
         if (!editorRef.current?.isValid()) {
@@ -115,6 +225,17 @@ export default function SearchIndexPanel() {
             hintRef.current.textContent = 'The definition needs a "mappings" object';
           return;
         }
+        // A definition with dynamic mapping off and no fields is valid input and
+        // builds a READY index that matches zero documents — a fifth silent
+        // failure inside the feature built to remove four. Checked here, not
+        // per-preset, so a hand-typed definition with the same shape is caught
+        // too.
+        if (matchesNothing(definition)) {
+          if (hintRef.current)
+            hintRef.current.textContent =
+              'This definition has dynamic mapping off and no fields, so it can never match anything. Choose a field, or use "Whole-word match".';
+          return;
+        }
 
         try {
           loading.value = true;
@@ -138,9 +259,66 @@ export default function SearchIndexPanel() {
             class={'input' + (isEdit ? ' input-locked' : '')}
             style="width:100%"
             placeholder="my_search_index"
-            value={initialName}
+            defaultValue={initialName}
             readOnly={isEdit}
           />
+          {!isEdit && (
+            <Fragment>
+              <ModalFieldLabel style="margin-top:8px">Start from</ModalFieldLabel>
+              {pendingPreset ? (
+                <div class={styles.presetConfirm}>
+                  <span>Replace your edits with this preset?</span>
+                  <button class="btn btn-sm btn-primary" onClick={() => writePreset(pendingPreset)}>
+                    Replace
+                  </button>
+                  <button class="btn btn-sm" onClick={() => setPendingPreset(null)}>
+                    Keep mine
+                  </button>
+                </div>
+              ) : (
+                <Segmented
+                  testid="preset-row"
+                  ariaLabel="Start from"
+                  value={preset || undefined}
+                  onChange={choosePreset}
+                  tabs
+                  options={[
+                    { value: 'default', label: 'Whole-word match', testid: 'preset-default' },
+                    { value: 'fuzzy', label: 'Fuzzy match', testid: 'preset-fuzzy' },
+                  ]}
+                />
+              )}
+            </Fragment>
+          )}
+          {!isEdit && preset === 'fuzzy' && (
+            <div class={styles.pickerRow}>
+              <ModalFieldLabel style="margin-top:8px">Fields to match on</ModalFieldLabel>
+              {paths.value ? (
+                <div data-testid="field-picker">
+                  <MatchKeyPicker paths={paths.value} keys={fields} setKeys={setFields} />
+                </div>
+              ) : paths.loading ? (
+                <div class={styles.pickerHint}>Reading field names{'…'}</div>
+              ) : (
+                <input
+                  data-testid="field-fallback"
+                  class="input"
+                  style="width:100%"
+                  placeholder="field path"
+                  onChange={(e: any) => setFields(e.target.value ? [e.target.value.trim()] : [])}
+                />
+              )}
+              <label class={styles.altLabel}>
+                <input
+                  data-testid="exact-alternate"
+                  type="checkbox"
+                  checked={exactAlternate}
+                  onChange={(e: any) => setExactAlternate(e.target.checked)}
+                />
+                Also match by exact value or regex
+              </label>
+            </div>
+          )}
           <ModalFieldLabel style="margin-top:8px">Definition</ModalFieldLabel>
           <JsonEditor value={initialJson} minHeight="250px" editorRef={editorRef} />
           <div ref={hintRef} class="input-hint"></div>
@@ -235,6 +413,26 @@ export default function SearchIndexPanel() {
             // Without this line the red card reads as an outage.
             const stillServing =
               isObj && String(idx.status).toUpperCase() === 'FAILED' && idx.queryable;
+            // READY only. A $search against a building index returns [] with code "ok",
+            // indistinguishable from a real miss — so offering Check earlier would turn a
+            // diagnostic into a new way to be misled. A FAILED-but-queryable index is still
+            // serving its previous build, so it stays checkable.
+            const isReady = isObj && String(idx.status).toUpperCase() === 'READY';
+            const checkable = isReady || stillServing;
+            const declaredPaths = definition ? indexedPaths(definition) : [];
+            const onCheck = checkable
+              ? async (value: string, path?: string) => {
+                  // A dynamic index declares no fields, so the strip asked for one. Never
+                  // guess a path and never emit a wildcard — unverified against this cluster.
+                  const paths = declaredPaths.length ? declaredPaths : path ? [path] : [];
+                  trackUsage('sa_mdh_search_index_check');
+                  const res = await api.aggregate(
+                    selectedCollection.value as string,
+                    checkPipeline(name, paths, value),
+                  );
+                  return res?.result || [];
+                }
+              : undefined;
             const openEdit = () =>
               openIndexModal({ mode: 'edit', name, definition: definition || undefined });
             const notice = stillServing ? (
@@ -261,6 +459,8 @@ export default function SearchIndexPanel() {
                 canDrop
                 onDrop={() => doDropSearchIndex(name)}
                 cardClass={(isFailed ? 'record-card-failed' : null) as string | undefined}
+                onCheck={onCheck}
+                checkNeedsPath={declaredPaths.length === 0}
               />
             );
           })

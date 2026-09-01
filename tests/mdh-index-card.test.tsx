@@ -69,3 +69,60 @@ describe('IndexCard new props', () => {
     expect(root.querySelector('.index-badge')!.hasAttribute('title')).toBe(false);
   });
 });
+
+// Finding 3, 2026-08-31 review: on a dynamic index (checkNeedsPath) Run used to
+// stay enabled with an empty path box, and checkPipeline then emitted path: [] —
+// a search with no path matches nothing, silently.
+describe('IndexCard — Check strip', () => {
+  it('disables Run until a path is given when the index needs one', () => {
+    const onCheck = vi.fn().mockResolvedValue([]);
+    const root = mount(
+      <IndexCard
+        name="x"
+        definition={{ mappings: { dynamic: true } }}
+        onCheck={onCheck}
+        checkNeedsPath
+      />,
+    );
+    act(() => {
+      root.querySelector<HTMLElement>('.action-check')!.click();
+    });
+    const run = root.querySelector<HTMLButtonElement>('[data-testid="check-run"]')!;
+    expect(run.disabled).toBe(true);
+
+    const path = root.querySelector<HTMLInputElement>('[data-testid="check-path"]')!;
+    act(() => {
+      path.value = 'vendor_name';
+      path.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(root.querySelector<HTMLButtonElement>('[data-testid="check-run"]')!.disabled).toBe(
+      false,
+    );
+
+    // Whitespace-only is not a path either.
+    act(() => {
+      path.value = '   ';
+      path.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(root.querySelector<HTMLButtonElement>('[data-testid="check-run"]')!.disabled).toBe(true);
+  });
+
+  it('does not require a path when the index already declares fields', () => {
+    const onCheck = vi.fn().mockResolvedValue([]);
+    const root = mount(
+      <IndexCard
+        name="x"
+        definition={{ mappings: { dynamic: false, fields: { name: {} } } }}
+        onCheck={onCheck}
+        checkNeedsPath={false}
+      />,
+    );
+    act(() => {
+      root.querySelector<HTMLElement>('.action-check')!.click();
+    });
+    expect(root.querySelector('[data-testid="check-path"]')).toBeNull();
+    expect(root.querySelector<HTMLButtonElement>('[data-testid="check-run"]')!.disabled).toBe(
+      false,
+    );
+  });
+});

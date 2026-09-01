@@ -1,0 +1,18 @@
+/* Copy-to-clipboard button (design system). No width and no margin: the call site
+   places it, since the module sheet outranks a call-site class at equal specificity. */
+
+.copy {
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.copy:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}

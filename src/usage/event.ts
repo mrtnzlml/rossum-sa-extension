@@ -46,6 +46,7 @@ export const EVENT_NAMES = [
   'sa_mdh_stages_view',
   'sa_mdh_agent_query',
   'sa_mdh_index_create',
+  'sa_mdh_search_index_check',
   'sa_audit_search',
   'sa_audit_fabry_ask',
   'sa_inspector_report',
