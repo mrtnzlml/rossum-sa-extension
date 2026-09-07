@@ -12,6 +12,7 @@ export {
   ModalActions,
   ModalMessage,
   ModalFieldLabel,
+  ModalField,
   ModalLoading,
   ModalFileTitle,
 } from '../../ui/Modal.jsx';

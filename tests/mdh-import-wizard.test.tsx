@@ -488,3 +488,23 @@ describe('ImportWizard — restore', () => {
     expect(summary.textContent).toMatch(/Restored 1 nested column/);
   });
 });
+
+// The clipboard stage's label carried a hand-placed margin-top:10px on top of the
+// body's own gap. Grouping replaces both. Measured in Chrome: card 252 -> 235px.
+describe('ImportWizard — the paste label is grouped with its editor', () => {
+  it('keeps the label and the JSON editor inside one field', async () => {
+    const root = mount(<ImportWizard onSuccess={() => {}} />);
+    const clip = [...root.querySelectorAll('.csv-seg-opt')].find(
+      (b) => b.textContent.trim() === 'Clipboard',
+    ) as HTMLElement;
+    clip.click();
+    const editor = await waitFor(() => root.querySelector('[data-testid="clipboard-editor"]'));
+
+    const label = [...root.querySelectorAll('.' + mstyles.fieldLabel)].find((n) =>
+      /Paste JSON/.test(n.textContent!),
+    )!;
+    const field = label.closest('.' + mstyles.field)!;
+    expect(field).not.toBeNull();
+    expect(field.contains(editor)).toBe(true);
+  });
+});

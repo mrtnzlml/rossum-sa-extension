@@ -131,7 +131,22 @@ export function fuzzyPreset(fields: string[], opts?: FuzzyOptions): Record<strin
 and the analyzer defined inline. It is a copy of something the engine built and marked `READY`,
 which is why it is the one preset whose correctness needs no argument.
 
-**It is also the modal's seed and its preselected chip.** The editor previously opened on
+**Superseded 2026-09-01: `Custom` is now the first tab and the modal's default.** It holds the
+minimal valid definition `{"mappings": {"dynamic": true}}` — verified live to reach `READY`,
+`queryable: true`, round-tripping byte-identical — which is also the seed this modal shipped with
+before presets existed, so the untouched Create path builds what it always built. "Whole-word
+match" is one tab away and keeps the justification below.
+
+**Correction to the claim made when this preset was written.** The text below said the old seed was
+"measurably not what `default` does". That is true of the DEFINITIONS and unsupported for
+BEHAVIOUR: the two recall experiments in §2 found the house analyzer and `lucene.standard`
+equivalent (9/10 vs 9/10, then 2/8 vs 2/8), and a later probe showed `AC 1001`, `AC.1001` and
+`AC/1001` all matching an indexed `AC-1001` under the minimal, standard-analyzer index — the
+punctuation normalisation attributed to the house analyzer is not exclusive to it. `defaultPreset`
+still earns its tab by reproducing the server's own `default` index verbatim, which is what matters
+when recreating a dropped one; it has no measured behavioural advantage over the minimal seed.
+
+**It was also the modal's seed and its preselected chip.** The editor previously opened on
 `{"mappings": {"dynamic": true}}` — a *plain* dynamic index on `lucene.standard`, measurably not
 what `default` does — so pressing Create without touching anything built something subtly different
 from the index every collection already gets. Opening on this preset makes the
@@ -367,3 +382,12 @@ The tabbed Guided/JSON builder (offered, declined). Synonym sets. Autocomplete, 
 `numPartitions` presets. Any change to the transport, the reconcile poll, or the card layout beyond
 the Check strip. Creating a `default` index for collections that have none — the gap is real and
 recorded in §2, but fixing it is a separate decision about writing to an org on the user's behalf.
+
+## Addendum — modal layout shift (2026-09-07)
+
+This modal's card grew 591 -> 850 px between the Custom and Whole-word tabs, moving the
+tab row 129 px, because the JSON editor grows with its document and a vertically centred
+card that grows moves its own top edge. Fixed for both index modals at once by
+`<ModalBody stable>` + `<ModalActions footer>` + JsonEditor's `fill`; measurements and the
+reasoning are recorded once, in section 7b of
+`2026-09-01-mdh-regular-index-guidance-design.md`.

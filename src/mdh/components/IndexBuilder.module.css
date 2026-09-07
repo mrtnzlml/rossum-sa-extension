@@ -1,0 +1,38 @@
+/* Layout for the Indexes panel's guidance affordances. Anything with a LOOK
+   comes from a design-system component instead — the preset row is the shared
+   `Segmented`. A CSS Module rather than the console.css monolith, per the
+   design-system direction. The module sheet is linked AFTER the monolith, so a
+   rule here outranks a call-site class at equal specificity: this file owns the
+   arrangement and never the width of anything a call site positions. */
+
+.summary {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.presetRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pickerHint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Inline "Replace / Keep mine" confirmation, shown in the tab row's place when a
+   tab click would overwrite hand-written JSON. Mirrors the search-index modal's
+   rule of the same name — NOT confirmModal, which would replace the whole modal
+   and destroy the contents the guard exists to protect. */
+.presetConfirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}

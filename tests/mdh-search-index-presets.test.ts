@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defaultPreset, fuzzyPreset } from '../src/mdh/searchIndexPresets.js';
+import { customPreset, defaultPreset, fuzzyPreset } from '../src/mdh/searchIndexPresets.js';
 
 describe('defaultPreset', () => {
   // Read verbatim off the `default` index the server creates with every
@@ -90,5 +90,30 @@ describe('fuzzyPreset', () => {
     const json = JSON.stringify(fuzzyPreset(['vat'], { exactAlternate: true }));
     expect(json).not.toContain('allowAnalyzedField');
     expect(json).not.toContain('vat.exact');
+  });
+});
+
+describe('customPreset', () => {
+  // Verified live 2026-09-01: PUT with nothing but this reaches READY and
+  // queryable, and round-trips back byte-identical.
+  it('is the minimal definition, and nothing more', () => {
+    expect(customPreset()).toEqual({ mappings: { dynamic: true } });
+  });
+
+  // The seed this modal shipped with before presets existed — the untouched
+  // Create path must build what it always built.
+  it('matches the historical editor seed exactly', () => {
+    expect(JSON.stringify(customPreset())).toBe('{"mappings":{"dynamic":true}}');
+  });
+
+  it('declares no analyzer, so it is NOT interchangeable with defaultPreset', () => {
+    expect(customPreset().analyzers).toBeUndefined();
+    expect(defaultPreset().analyzers).toBeDefined();
+  });
+
+  it('hands back a fresh object each time', () => {
+    const a = customPreset();
+    a.mappings.dynamic = 'MUTATED';
+    expect(customPreset().mappings.dynamic).toBe(true);
   });
 });

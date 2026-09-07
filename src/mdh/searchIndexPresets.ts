@@ -42,6 +42,23 @@ export function defaultPreset(): Record<string, any> {
   };
 }
 
+// The minimal valid definition, and what the Create modal opens on. Verified
+// live 2026-09-01: PUT with nothing but this reaches `status: READY`,
+// `queryable: true`, and the definition round-trips back byte-identical — the
+// engine adds no analyzer keys of its own. It is also the exact seed this modal
+// shipped with before presets existed, so the untouched Create path builds what
+// it always built.
+//
+// Note what it is NOT: without an `analyzers` block the index runs on Atlas's
+// `lucene.standard`, not the house `default_whitespace_lowercase` that
+// `collections/create` puts on its own `default` index. Use `defaultPreset()`
+// when the point is to reproduce that index; the two are not interchangeable as
+// DEFINITIONS, even though no behavioural difference between them has been
+// measured (two experiments found them equivalent: 9/10 vs 9/10, then 2/8 vs 2/8).
+export function customPreset(): Record<string, any> {
+  return { mappings: { dynamic: true } };
+}
+
 export type FuzzyOptions = { exactAlternate?: boolean };
 
 function usablePaths(fields: string[]): string[] {

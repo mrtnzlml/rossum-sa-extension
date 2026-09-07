@@ -2061,10 +2061,6 @@ body {
 
 /* --- Import from JSON file wizard --- */
 
-.import-wizard {
-  gap: 14px;
-}
-
 /* Shape-validation blocking error — reads unmistakably as an error (danger palette). */
 .import-error {
   font-size: 12px;
@@ -3695,6 +3691,16 @@ tbody.uploads-row-failed tr {
 
 .json-editor-compact .cm-editor {
   max-height: 120px;
+}
+
+/* `fill`: let the editor resolve to the height its container was GIVEN rather than
+   growing to fit the document, so CodeMirror's own `.cm-scroller` owns the
+   overflow. The generic rule above deliberately omits `min-height: 0` — without
+   it `.cm-scroller`'s `height: 100%` never resolves and the outer .json-editor is
+   the scroller (JsonEditor's stage-scroll code depends on that in the Stages
+   layout), so this is an opt-in rather than a change to every consumer. */
+.json-editor-fill .cm-editor {
+  min-height: 0;
 }
 
 .json-editor-error {

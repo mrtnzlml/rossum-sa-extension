@@ -21,7 +21,7 @@ vi.mock('../src/mdh/components/JsonEditor.jsx', () => ({
   // handle, and a stub that re-seeds from `value` on every render silently
   // discards whatever a preset just wrote the moment the modal's own state
   // (e.g. which preset is selected) changes.
-  default: ({ value, editorRef }: any) => {
+  default: ({ value, editorRef, fill }: any) => {
     const bufRef = useRef(value);
     if (editorRef) {
       editorRef.current = {
@@ -41,7 +41,7 @@ vi.mock('../src/mdh/components/JsonEditor.jsx', () => ({
       };
     }
     return (
-      <div class="json-editor-stub">
+      <div class="json-editor-stub" data-fill={fill ? '1' : undefined}>
         {/* Test-only escape hatch that mutates the buffer WITHOUT going through
             setValue — the only way a test can simulate the user hand-typing over
             what a preset wrote, which is exactly the distinction the dirty-editor
@@ -70,6 +70,7 @@ vi.mock('../src/mdh/components/Modal.jsx', async (importOriginal) => {
 
 import * as api from '../src/mdh/api.js';
 import Modal, { closeModal } from '../src/mdh/components/Modal.jsx';
+import mstyles from '../src/ui/Modal.module.css';
 import SearchIndexPanel from '../src/mdh/components/SearchIndexPanel.jsx';
 import { selectedCollection, activePanel, loading, error } from '../src/mdh/store.js';
 import { defaultPreset } from '../src/mdh/searchIndexPresets.js';
@@ -412,14 +413,21 @@ describe('SearchIndexPanel — presets', () => {
     const root = mount();
     await Promise.resolve();
     await openCreate(root);
-    const chip = root.querySelector('[data-testid="preset-default"]')!;
-    expect(chip.getAttribute('aria-pressed')).toBe('true');
-    expect(root.querySelector('[data-testid="preset-fuzzy"]')!.getAttribute('aria-pressed')).toBe(
+    const labels = [...root.querySelectorAll('[data-testid="preset-row"] button')].map(
+      (n) => n.textContent,
+    );
+    expect(labels[0]).toBe('Custom');
+    expect(root.querySelector('[data-testid="preset-custom"]')!.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(root.querySelector('[data-testid="preset-default"]')!.getAttribute('aria-pressed')).toBe(
       'false',
     );
   });
 
-  it('submits the full house-analyzer definition when nothing is touched', async () => {
+  // Verified live 2026-09-01: this minimal definition reaches READY and
+  // queryable, and round-trips back byte-identical.
+  it('submits the minimal definition when nothing is touched', async () => {
     const root = mount();
     await Promise.resolve();
     await openCreate(root);
@@ -433,9 +441,29 @@ describe('SearchIndexPanel — presets', () => {
     await Promise.resolve();
 
     const [, , definition] = vi.mocked(api.putSearchIndex).mock.calls[0] as [string, string, any];
-    expect(definition.mappings).toEqual({ dynamic: true });
+    expect(definition).toEqual({ mappings: { dynamic: true } });
+    // No analyzer keys: the minimal definition runs on lucene.standard, and
+    // reproducing the server's own `default` index is what the next tab is for.
+    expect(definition.analyzers).toBeUndefined();
+  });
+
+  it('still builds the house-analyzer definition when Whole-word match is chosen', async () => {
+    const root = mount();
+    await Promise.resolve();
+    await openCreate(root);
+    const name = root.querySelector('input.input') as HTMLInputElement;
+    name.value = 'house';
+    (root.querySelector('[data-testid="preset-default"]') as HTMLElement).click();
+    await Promise.resolve();
+    const submit = [...root.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Create Search Index',
+    )!;
+    submit.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const [, , definition] = vi.mocked(api.putSearchIndex).mock.calls[0] as [string, string, any];
     expect(definition.analyzer).toBe('default_whitespace_lowercase');
-    expect(definition.searchAnalyzer).toBe('default_whitespace_lowercase');
     expect(definition.analyzers[0].charFilters[0].mappings).toEqual({
       '.': ' ',
       '/': '',
@@ -461,7 +489,7 @@ describe('SearchIndexPanel — presets', () => {
     const labels = [...root.querySelectorAll('[data-testid="preset-row"] button')].map(
       (n) => n.textContent,
     );
-    expect(labels).toEqual(['Whole-word match', 'Fuzzy match']);
+    expect(labels).toEqual(['Custom', 'Whole-word match', 'Fuzzy match']);
   });
 
   it('writes the fuzzy definition into the editor and submits exactly that', async () => {
@@ -674,7 +702,9 @@ describe('SearchIndexPanel — dirty editor guard', () => {
     (root.querySelector('[data-testid="preset-default"]') as HTMLElement).click();
     await Promise.resolve();
 
-    expect(root.querySelector('[data-testid="preset-row"]')).toBeNull();
+    // The tab row stays mounted — replacing it would remount the editor below and
+    // destroy the edits this confirm exists to protect.
+    expect(root.querySelector('[data-testid="preset-row"]')).not.toBeNull();
     expect(root.textContent).toContain('Replace your edits with this preset?');
     // Nothing was submitted yet — asking is not the same as replacing.
     expect(api.putSearchIndex).not.toHaveBeenCalled();
@@ -994,5 +1024,69 @@ describe('SearchIndexPanel — check', () => {
     await vi.waitFor(() => expect(root.textContent).toContain('could not run'));
     expect(root.textContent).not.toContain('No match');
     expect(error.value).toBeNull();
+  });
+});
+
+// jsdom has no layout, so this asserts the STRUCTURE behind a card that does not
+// resize as the user switches presets. Measured in Chrome before the change: the
+// card grew 591→850px and the tab row moved 129px between Custom and Whole-word,
+// because the JSON editor grew with its content and a centred card that grows
+// moves its own top edge.
+describe('SearchIndexPanel — create modal holds its size', () => {
+  async function openCreate(root: HTMLElement) {
+    const create = [...root.querySelectorAll('button')].find((b) =>
+      b.textContent!.includes('Create'),
+    )!;
+    create.click();
+    await Promise.resolve();
+  }
+
+  it('flexes the body inside a stable card and pins the buttons outside it', async () => {
+    const root = mount();
+    await Promise.resolve();
+    await openCreate(root);
+    const card = root.querySelector('[role="dialog"]')!;
+    const body = card.querySelector('.' + mstyles.body)!;
+    const submit = [...root.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Create Search Index',
+    )!;
+
+    expect(body.classList.contains(mstyles.stableBody)).toBe(true);
+    // Inside the body the buttons scroll with the content and move whenever it
+    // changes height; as a card child they cannot.
+    expect(body.contains(submit)).toBe(false);
+    expect(submit.closest('.' + mstyles.actions)!.parentElement).toBe(card);
+  });
+
+  it('groups each label with the control it names', async () => {
+    const root = mount();
+    await Promise.resolve();
+    await openCreate(root);
+    const dialog = root.querySelector('[role="dialog"]')!;
+    for (const [label, sel] of [
+      ['Name', 'input.input'],
+      ['Start from', '[data-testid="preset-row"]'],
+      ['Definition', '.json-editor-stub'],
+    ] as [string, string][]) {
+      const labelEl = [...dialog.querySelectorAll('.' + mstyles.fieldLabel)].find(
+        (n) => n.textContent === label,
+      )!;
+      const field = labelEl.closest('.' + mstyles.field)!;
+      expect(field).not.toBeNull();
+      expect(field.querySelector(sel)).not.toBeNull();
+      // Only the editor's field may absorb the card's spare height. Without it the
+      // group cannot shrink and the editor grows the card — the shift this modal
+      // was fixed for. Nothing in jsdom would notice, so assert the opt-in.
+      expect(field.classList.contains(mstyles.fieldGrow)).toBe(label === 'Definition');
+    }
+  });
+
+  it("hands the editor its height rather than taking the editor's", async () => {
+    const root = mount();
+    await Promise.resolve();
+    await openCreate(root);
+    // `fill` is what stops the editor growing with the definition — the search
+    // presets are long enough that it grew 250→509px and took the card with it.
+    expect(root.querySelector('.json-editor-stub')!.getAttribute('data-fill')).toBe('1');
   });
 });

@@ -7,7 +7,14 @@ import { useState, useEffect, useLayoutEffect, useRef } from 'preact/hooks';
 // the alias only pre-empts one if useOperationStatus is ever added to this file too.
 import { track as trackUsage } from '../../usage/track.js';
 import { selectedCollection, activePanel, loading, error } from '../store.js';
-import { openModal, closeModal, ModalBody, ModalActions, ModalFieldLabel } from './Modal.jsx';
+import {
+  openModal,
+  closeModal,
+  ModalBody,
+  ModalActions,
+  ModalField,
+  ModalFieldLabel,
+} from './Modal.jsx';
 import JsonEditor from './JsonEditor.jsx';
 import IndexCard from './IndexCard.jsx';
 import {
@@ -25,7 +32,7 @@ import useIndexReconcile from '../hooks/useIndexReconcile.js';
 import * as api from '../api.js';
 import * as cache from '../cache.js';
 import type { JsonEditorHandle } from './JsonEditor.jsx';
-import { defaultPreset, fuzzyPreset } from '../searchIndexPresets.js';
+import { customPreset, defaultPreset, fuzzyPreset } from '../searchIndexPresets.js';
 import { indexedPaths, checkPipeline } from '../searchIndexCheck.js';
 import { Segmented } from './ImportControls.jsx';
 import MatchKeyPicker from './MatchKeyPicker.jsx';
@@ -94,12 +101,10 @@ export default function SearchIndexPanel() {
   }) {
     const editorRef: { current: JsonEditorHandle | null } = { current: null };
     const isEdit = mode === 'edit';
-    // Create mode seeds with the SAME definition the server's own `default` index
-    // carries, not a bare {mappings:{dynamic:true}}. The bare form is a plain
-    // dynamic index on lucene.standard — measurably not what `default` does — so
-    // seeding it meant the out-of-the-box path silently produced different
-    // matching behaviour from the index every collection already gets.
-    const initialJson = JSON.stringify(initialDefinition ?? defaultPreset(), null, 2);
+    // Create mode opens on the MINIMAL valid definition — the seed this modal
+    // shipped with before presets existed, so the untouched path builds what it
+    // always built. The opinionated alternatives are one tab away.
+    const initialJson = JSON.stringify(initialDefinition ?? customPreset(), null, 2);
 
     openModal(isEdit ? 'Edit Search Index' : 'Create Search Index', () => {
       const hintRef = useRef<HTMLDivElement | null>(null);
@@ -108,15 +113,15 @@ export default function SearchIndexPanel() {
       // preset/field/checkbox change — a controlled input would force-reset a
       // name the user was mid-typing back to `initialName`.
       const nameRef = useRef<HTMLInputElement | null>(null);
-      // Create mode opens ON the default preset, and the editor already holds its
-      // output — so the chip reflects what is actually in the box rather than
-      // leaving both unset.
-      const [preset, setPreset] = useState<'default' | 'fuzzy' | null>(isEdit ? null : 'default');
+      // Create mode opens on Custom, and the editor already holds its output — so
+      // the tab reflects what is actually in the box rather than leaving both unset.
+      type PresetId = 'custom' | 'default' | 'fuzzy';
+      const [preset, setPreset] = useState<PresetId | null>(isEdit ? null : 'custom');
       // The exact string the last preset wrote. Anything else in the editor is the
       // user's own work, and replacing it has to be asked about first. Seeded in
-      // create mode because the seed IS the default preset's output.
+      // create mode because the seed IS the Custom preset's output.
       const lastPresetJson = useRef<string | null>(isEdit ? null : initialJson);
-      const [pendingPreset, setPendingPreset] = useState<'default' | 'fuzzy' | null>(null);
+      const [pendingPreset, setPendingPreset] = useState<PresetId | null>(null);
       const [fields, setFields] = useState<string[]>([]);
       const [exactAlternate, setExactAlternate] = useState(false);
       const [paths, setPaths] = useState<{ loading: boolean; value: string[] | null }>({
@@ -181,11 +186,16 @@ export default function SearchIndexPanel() {
         lastPresetJson.current = json;
       }, [fields, exactAlternate]);
 
-      function definitionFor(id: 'default' | 'fuzzy') {
-        return id === 'default' ? defaultPreset() : fuzzyPreset(fields, { exactAlternate });
+      // Explicit per id, never a fall-through: the previous form ended in an
+      // unguarded `else` returning fuzzyPreset, so any id it did not name would
+      // have silently produced a fuzzy index instead of the one selected.
+      function definitionFor(id: PresetId) {
+        if (id === 'custom') return customPreset();
+        if (id === 'default') return defaultPreset();
+        return fuzzyPreset(fields, { exactAlternate });
       }
 
-      function writePreset(id: 'default' | 'fuzzy') {
+      function writePreset(id: PresetId) {
         const json = JSON.stringify(definitionFor(id), null, 2);
         editorRef.current?.setValue(json);
         lastPresetJson.current = json;
@@ -193,7 +203,7 @@ export default function SearchIndexPanel() {
         setPendingPreset(null);
       }
 
-      function choosePreset(id: 'default' | 'fuzzy') {
+      function choosePreset(id: PresetId) {
         // NOT confirmModal: `modalContent` is a single signal, so a confirm dialog
         // REPLACES this modal and destroys the editor contents the guard exists to
         // protect. The confirmation is inline, in the preset row's place.
@@ -252,77 +262,92 @@ export default function SearchIndexPanel() {
       }
 
       return (
-        <ModalBody>
-          <ModalFieldLabel>{isEdit ? 'Name (cannot be changed)' : 'Name'}</ModalFieldLabel>
-          <input
-            ref={nameRef}
-            class={'input' + (isEdit ? ' input-locked' : '')}
-            style="width:100%"
-            placeholder="my_search_index"
-            defaultValue={initialName}
-            readOnly={isEdit}
-          />
-          {!isEdit && (
-            <Fragment>
-              <ModalFieldLabel style="margin-top:8px">Start from</ModalFieldLabel>
-              {pendingPreset ? (
-                <div class={styles.presetConfirm}>
-                  <span>Replace your edits with this preset?</span>
-                  <button class="btn btn-sm btn-primary" onClick={() => writePreset(pendingPreset)}>
-                    Replace
-                  </button>
-                  <button class="btn btn-sm" onClick={() => setPendingPreset(null)}>
-                    Keep mine
-                  </button>
-                </div>
-              ) : (
-                <Segmented
-                  testid="preset-row"
-                  ariaLabel="Start from"
-                  value={preset || undefined}
-                  onChange={choosePreset}
-                  tabs
-                  options={[
-                    { value: 'default', label: 'Whole-word match', testid: 'preset-default' },
-                    { value: 'fuzzy', label: 'Fuzzy match', testid: 'preset-fuzzy' },
-                  ]}
-                />
-              )}
-            </Fragment>
-          )}
-          {!isEdit && preset === 'fuzzy' && (
-            <div class={styles.pickerRow}>
-              <ModalFieldLabel style="margin-top:8px">Fields to match on</ModalFieldLabel>
-              {paths.value ? (
-                <div data-testid="field-picker">
-                  <MatchKeyPicker paths={paths.value} keys={fields} setKeys={setFields} />
-                </div>
-              ) : paths.loading ? (
-                <div class={styles.pickerHint}>Reading field names{'…'}</div>
-              ) : (
-                <input
-                  data-testid="field-fallback"
-                  class="input"
-                  style="width:100%"
-                  placeholder="field path"
-                  onChange={(e: any) => setFields(e.target.value ? [e.target.value.trim()] : [])}
-                />
-              )}
-              <label class={styles.altLabel}>
-                <input
-                  data-testid="exact-alternate"
-                  type="checkbox"
-                  checked={exactAlternate}
-                  onChange={(e: any) => setExactAlternate(e.target.checked)}
-                />
-                Also match by exact value or regex
-              </label>
-            </div>
-          )}
-          <ModalFieldLabel style="margin-top:8px">Definition</ModalFieldLabel>
-          <JsonEditor value={initialJson} minHeight="250px" editorRef={editorRef} />
-          <div ref={hintRef} class="input-hint"></div>
-          <ModalActions>
+        <>
+          <ModalBody stable>
+            <ModalField label={isEdit ? 'Name (cannot be changed)' : 'Name'}>
+              <input
+                ref={nameRef}
+                class={'input' + (isEdit ? ' input-locked' : '')}
+                style="width:100%"
+                placeholder="my_search_index"
+                defaultValue={initialName}
+                readOnly={isEdit}
+              />
+            </ModalField>
+            {!isEdit && (
+              <Fragment>
+                {/* The confirm renders BELOW the tabs rather than replacing them:
+                  swapping a component for an element in the same slot remounts the
+                  JSON editor further down the tree, which re-seeds it from `value`
+                  and destroys the very edits "Keep mine" promises to keep. Proved by
+                  instance-tracking the editor across the swap in the sibling
+                  index modal. Keeping the row mounted also lets the reader see which
+                  tab they are on while deciding. */}
+                <ModalField label="Start from">
+                  <Segmented
+                    testid="preset-row"
+                    ariaLabel="Start from"
+                    value={preset || undefined}
+                    onChange={choosePreset}
+                    tabs
+                    options={[
+                      { value: 'custom', label: 'Custom', testid: 'preset-custom' },
+                      { value: 'default', label: 'Whole-word match', testid: 'preset-default' },
+                      { value: 'fuzzy', label: 'Fuzzy match', testid: 'preset-fuzzy' },
+                    ]}
+                  />
+                </ModalField>
+                {pendingPreset && (
+                  <div class={styles.presetConfirm}>
+                    <span>Replace your edits with this preset?</span>
+                    <button
+                      class="btn btn-sm btn-primary"
+                      onClick={() => writePreset(pendingPreset)}
+                    >
+                      Replace
+                    </button>
+                    <button class="btn btn-sm" onClick={() => setPendingPreset(null)}>
+                      Keep mine
+                    </button>
+                  </div>
+                )}
+              </Fragment>
+            )}
+            {!isEdit && preset === 'fuzzy' && (
+              <div class={styles.pickerRow}>
+                <ModalFieldLabel>Fields to match on</ModalFieldLabel>
+                {paths.value ? (
+                  <div data-testid="field-picker">
+                    <MatchKeyPicker paths={paths.value} keys={fields} setKeys={setFields} />
+                  </div>
+                ) : paths.loading ? (
+                  <div class={styles.pickerHint}>Reading field names{'…'}</div>
+                ) : (
+                  <input
+                    data-testid="field-fallback"
+                    class="input"
+                    style="width:100%"
+                    placeholder="field path"
+                    onChange={(e: any) => setFields(e.target.value ? [e.target.value.trim()] : [])}
+                  />
+                )}
+                <label class={styles.altLabel}>
+                  <input
+                    data-testid="exact-alternate"
+                    type="checkbox"
+                    checked={exactAlternate}
+                    onChange={(e: any) => setExactAlternate(e.target.checked)}
+                  />
+                  Also match by exact value or regex
+                </label>
+              </div>
+            )}
+            <ModalField label="Definition" grow>
+              <JsonEditor value={initialJson} minHeight="160px" fill editorRef={editorRef} />
+            </ModalField>
+            <div ref={hintRef} class="input-hint"></div>
+          </ModalBody>
+          <ModalActions footer>
             <button class="btn btn-secondary" onClick={closeModal}>
               Cancel
             </button>
@@ -330,7 +355,7 @@ export default function SearchIndexPanel() {
               {isEdit ? 'Save & rebuild' : 'Create Search Index'}
             </button>
           </ModalActions>
-        </ModalBody>
+        </>
       );
     });
   }

@@ -10,6 +10,7 @@ import { h, render } from 'preact';
 import ExportWizard from '../src/mdh/components/ExportWizard.jsx';
 import * as api from '../src/mdh/api.js';
 import { closeModal } from '../src/mdh/components/Modal.jsx';
+import mstyles from '../src/ui/Modal.module.css';
 
 function mount(props: any) {
   const el = document.createElement('div');
@@ -423,5 +424,29 @@ describe('ExportWizard', () => {
     for (const s of signals) expect(s.aborted).toBe(false);
     render(null, root); // unmount, as closing the modal would
     for (const s of signals) expect(s.aborted).toBe(true);
+  });
+});
+
+// Measured in Chrome before this: "Scope" sat 16px above its own control — the
+// body's section gap plus the label's margin — and "Format" carried a hand-placed
+// margin-top:10px on top of that. Grouping is what closed it to 3px, and the card
+// fell 595 -> 540px.
+describe('ExportWizard — each label is grouped with its control', () => {
+  it('keeps Scope and Format each inside one field, not as loose body children', async () => {
+    const root = mount(base);
+    await waitFor(() => root.querySelector('[data-testid="export-scope"]'));
+
+    for (const [label, testid] of [
+      ['Scope', 'export-scope'],
+      ['Format', 'export-format'],
+    ]) {
+      const labelEl = [...root.querySelectorAll('.' + mstyles.fieldLabel)].find(
+        (n) => n.textContent === label,
+      )!;
+      const control = root.querySelector(`[data-testid="${testid}"]`)!;
+      const field = labelEl.closest('.' + mstyles.field)!;
+      expect(field).not.toBeNull();
+      expect(field.contains(control)).toBe(true);
+    }
   });
 });

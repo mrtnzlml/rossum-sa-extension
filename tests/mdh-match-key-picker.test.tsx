@@ -109,4 +109,40 @@ describe('MatchKeyPicker', () => {
     expect(/top:|bottom:/.test(style)).toBe(true);
     expect(style).toMatch(/width:/);
   });
+
+  // `single` exists so a consumer whose index uses exactly one field cannot be
+  // shown chips it will discard. The constraint lives in the control, not in a
+  // note under it.
+  it('replaces the selection instead of appending when single', async () => {
+    const setKeys = vi.fn();
+    const root = mount(
+      <MatchKeyPicker paths={PATHS} keys={['sku']} setKeys={setKeys} single={true} />,
+    );
+    focus(root.querySelector('[data-testid="match-key-input"]'));
+    await waitFor(() => root.querySelector('[data-testid="match-key-suggest"]'));
+    const item = [...root.querySelectorAll<HTMLElement>('.match-key-suggest-item')].find(
+      (b) => b.textContent === '_id',
+    )!;
+    item.click();
+    expect(setKeys).toHaveBeenCalledWith(['_id']);
+  });
+
+  it('keeps the selected path listed when single, since picking it again is a no-op', async () => {
+    const root = mount(
+      <MatchKeyPicker paths={PATHS} keys={['sku']} setKeys={() => {}} single={true} />,
+    );
+    focus(root.querySelector('[data-testid="match-key-input"]'));
+    await waitFor(() => root.querySelector('[data-testid="match-key-suggest"]'));
+    expect([...root.querySelectorAll('.match-key-suggest-item')].map((b) => b.textContent)).toEqual(
+      PATHS,
+    );
+  });
+
+  it('asks for one field rather than another one when single', async () => {
+    const root = mount(<MatchKeyPicker paths={PATHS} keys={[]} setKeys={() => {}} single={true} />);
+    const input = root.querySelector<HTMLInputElement>('[data-testid="match-key-input"]')!;
+    expect(input.placeholder).toBe('Pick one field…');
+    render(<MatchKeyPicker paths={PATHS} keys={['sku']} setKeys={() => {}} single={true} />, root);
+    expect(input.placeholder).toBe('Replace the field…');
+  });
 });

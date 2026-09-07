@@ -277,6 +277,7 @@ export default function JsonEditor({
   onSubmit,
   editorRef,
   minHeight = '200px',
+  fill = false,
   jsonLines = false,
 }: {
   value?: string;
@@ -295,6 +296,9 @@ export default function JsonEditor({
   onSubmit?: () => void;
   editorRef?: { current: JsonEditorHandle | null };
   minHeight?: string;
+  // Take the height the container gives instead of growing with the document —
+  // see .json-editor-fill in console.css. Used by modals with a stable height.
+  fill?: boolean;
   jsonLines?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -639,7 +643,9 @@ export default function JsonEditor({
     }
   }, [editorRef]);
 
-  const cls = compact ? 'json-editor json-editor-compact' : 'json-editor';
+  const cls =
+    (compact ? 'json-editor json-editor-compact' : 'json-editor') +
+    (fill ? ' json-editor-fill' : '');
   const style = compact ? {} : { minHeight };
 
   return (

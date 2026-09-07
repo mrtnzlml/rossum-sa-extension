@@ -7,7 +7,7 @@ import {
   setModalTitle,
   ModalBody,
   ModalActions,
-  ModalFieldLabel,
+  ModalField,
   ModalFileTitle,
 } from './Modal.jsx';
 import FileDropArea from './FileDropArea.jsx';
@@ -410,16 +410,17 @@ export default function ImportWizard({
             </FileDropArea>
           ) : (
             <Fragment>
-              <ModalFieldLabel style="margin-top:10px">
-                Paste JSON {'—'} array, object, or JSON-lines
-              </ModalFieldLabel>
-              <JsonEditor
-                value={clipboardText ?? '[\n  \n]'}
-                minHeight="200px"
-                fields={fieldsFn}
-                editorRef={editorRef}
-                jsonLines
-              />
+              <ModalField
+                label={<Fragment>Paste JSON {'—'} array, object, or JSON-lines</Fragment>}
+              >
+                <JsonEditor
+                  value={clipboardText ?? '[\n  \n]'}
+                  minHeight="200px"
+                  fields={fieldsFn}
+                  editorRef={editorRef}
+                  jsonLines
+                />
+              </ModalField>
             </Fragment>
           )}
           {errorMsg && (

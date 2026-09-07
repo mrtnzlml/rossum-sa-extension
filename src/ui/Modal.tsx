@@ -23,20 +23,67 @@ export function ModalBody({
   class: cls,
   style,
   rootRef,
+  stable,
 }: {
   children?: ComponentChildren;
   class?: string;
   style?: any;
   rootRef?: any;
+  // Give the card a stable height and let this body flex inside it, so content
+  // that comes and goes resizes the body's flexible child instead of the card.
+  // See .stableBody in Modal.module.css for the measurements behind it.
+  stable?: boolean;
 }) {
   return (
-    <div class={styles.body + (cls ? ' ' + cls : '')} style={style} ref={rootRef}>
+    <div
+      class={styles.body + (stable ? ' ' + styles.stableBody : '') + (cls ? ' ' + cls : '')}
+      style={style}
+      ref={rootRef}
+    >
       {children}
     </div>
   );
 }
-export function ModalActions({ children }: { children?: ComponentChildren }) {
-  return <div class={styles.actions}>{children}</div>;
+// `footer` pins the buttons outside a scrolling body. The render function's
+// children are card-level flex items, so a body/actions pair returned as a
+// fragment gives header · scrolling body · fixed footer.
+// A label and the control it names, as one unit. Left as separate children of
+// ModalBody they are pushed apart by the body's own gap, so the label reads as
+// no more attached to its input than to the section above it — measured 16px in
+// the index modals, and most of the 177px it took to reach the first choice.
+// `label` may be omitted for a control that needs the grouping but names itself.
+export function ModalField({
+  label,
+  children,
+  class: cls,
+  style,
+  grow,
+}: {
+  label?: ComponentChildren;
+  children?: ComponentChildren;
+  class?: string;
+  style?: any;
+  // The field whose control takes the leftover height in a <ModalBody stable>.
+  grow?: boolean;
+}) {
+  return (
+    <div
+      class={styles.field + (grow ? ' ' + styles.fieldGrow : '') + (cls ? ' ' + cls : '')}
+      style={style}
+    >
+      {label != null && <div class={styles.fieldLabel}>{label}</div>}
+      {children}
+    </div>
+  );
+}
+export function ModalActions({
+  children,
+  footer,
+}: {
+  children?: ComponentChildren;
+  footer?: boolean;
+}) {
+  return <div class={styles.actions + (footer ? ' ' + styles.actionsFooter : '')}>{children}</div>;
 }
 export function ModalMessage({ children }: { children?: ComponentChildren }) {
   return <p class={styles.message}>{children}</p>;

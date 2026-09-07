@@ -8,6 +8,7 @@
 // in the view and are read back via editorRef, so a parent re-render must never
 // clobber them.
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'fs';
 import { h, render, Fragment } from 'preact';
 import JsonEditor from '../src/mdh/components/JsonEditor.jsx';
 import type { JsonEditorHandle } from '../src/mdh/components/JsonEditor.jsx';
@@ -62,5 +63,42 @@ describe('JsonEditor — value prop syncing', () => {
     );
     await vi.waitFor(() => expect(roRef.current!.getValue()).toBe('{"next":2}'));
     expect(edRef.current!.getValue()).toBe('{"edited":true}');
+  });
+});
+
+// `fill` exists so a modal with a stable height can hand the editor a height
+// instead of having the editor's content set the modal's. Measured in Chrome:
+// without it the editor grew 250→509px between two presets and took the whole
+// card with it.
+describe('JsonEditor — fill', () => {
+  function mountEditor(props: any) {
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    render(<JsonEditor {...props} />, root);
+    return root;
+  }
+
+  it('opts the container into the fill rule', () => {
+    const root = mountEditor({ value: '{}', fill: true });
+    expect(root.querySelector('.json-editor')!.classList.contains('json-editor-fill')).toBe(true);
+  });
+
+  it('is off by default, so every other consumer keeps growing with its content', () => {
+    const root = mountEditor({ value: '{}' });
+    expect(root.querySelector('.json-editor')!.classList.contains('json-editor-fill')).toBe(false);
+  });
+
+  it('composes with compact rather than replacing it', () => {
+    const root = mountEditor({ value: '{}', compact: true, fill: true });
+    const cls = root.querySelector('.json-editor')!.className;
+    expect(cls).toContain('json-editor-compact');
+    expect(cls).toContain('json-editor-fill');
+  });
+
+  // The class alone does nothing: `.cm-scroller`'s height: 100% only resolves
+  // once .cm-editor may shrink below its content, and that rule is the opt-in.
+  it('keeps the rule the class depends on', () => {
+    const css = readFileSync('src/console/console.css', 'utf8');
+    expect(css).toMatch(/\.json-editor-fill \.cm-editor\s*\{[^}]*min-height:\s*0/);
   });
 });

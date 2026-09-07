@@ -57,34 +57,112 @@ export function classifyIndexType(key: any): string | null {
 }
 
 // Option fields whose presence makes an index NOT safely redundant — dropping
-// such an index could silently remove a constraint or change semantics.
-const CONSTRAINTS = [
-  'unique',
-  'sparse',
-  'expireAfterSeconds',
-  'partialFilterExpression',
-  'collation',
-];
+// such an index could silently remove a constraint or change semantics. Split
+// by shape: the booleans are tested for TRUTHINESS because `indexes/list` echoes
+// `sparse: false` back for an index created with it (measured 2026-09-01), and
+// an explicit `false` is not a constraint. The value-carrying ones are tested
+// for presence, because `expireAfterSeconds: 0` is a legitimate TTL index.
+const BOOLEAN_CONSTRAINTS = ['unique', 'sparse', 'hidden'];
+const VALUE_CONSTRAINTS = ['expireAfterSeconds', 'partialFilterExpression', 'collation'];
+
+function isPlain(i: any): boolean {
+  return (
+    BOOLEAN_CONSTRAINTS.every((c) => !i[c]) && VALUE_CONSTRAINTS.every((c) => i[c] === undefined)
+  );
+}
+
+function isWildcard(i: any): boolean {
+  return Object.keys(i.key || {}).some((n) => n.includes('$**'));
+}
+
+// Deliberately narrower than isWildcard, and used only to decide what COVERS
+// other indexes (isWildcard stays broad and is used only to SKIP — an index
+// with any `$**` key is never itself flagged, which is the conservative
+// direction there). A subpath wildcard (`{"a.$**": 1}`) indexes only paths
+// under `a`, and a compound wildcard with a prefix field
+// (`{"tenant": 1, "$**": 1}`) only serves queries with equality on that
+// prefix — neither covers an unrelated field the way a plain `{"$**": 1}`
+// does. A `wildcardProjection` narrows the same way: `{"$**": 1,
+// wildcardProjection: {a: 1}}` indexes only `a`, not every scalar path, so it
+// is excluded here too even though the key spec alone looks like a full
+// wildcard. Do not merge this back into isWildcard: a false positive here
+// badges a genuinely load-bearing index as droppable.
+//
+// Only the key-SHAPE half of "does this cover every field" — see
+// coveringWildcardIndex below for the whole answer, options included.
+export function isFullWildcard(i: any): boolean {
+  const keys = Object.keys(i.key || {});
+  return keys.length === 1 && keys[0] === '$**' && i.wildcardProjection === undefined;
+}
+
+// A superset only truly covers another index's queries if it indexes the same
+// document set under the same collation and is visible to the planner.
+// partial/sparse index a strict subset of docs; collation restricts which
+// queries it serves; hidden indexes serve none. (A `unique` superset is fine
+// — uniqueness doesn't restrict read coverage.)
+function coversFully(b: any): boolean {
+  return (
+    b.partialFilterExpression === undefined && !b.sparse && b.collation === undefined && !b.hidden
+  );
+}
+
+// THE single answer to "does this collection have a wildcard index that
+// genuinely covers every field?" — full key shape and no wildcardProjection
+// (isFullWildcard), AND not partial/sparse/collated/hidden (coversFully),
+// since any of those restrict which documents or queries it actually serves.
+// Returns the covering index, or null.
+//
+// Three call sites used to each re-derive half of this question by hand
+// (redundantIndexNames combined isFullWildcard+coversFully inline;
+// collectionIndexSummary and IndexPanel used a bare isFullWildcard, ignoring
+// options entirely) and disagreed on a `hidden: true` wildcard — redundancy
+// correctly found nothing, while the summary still claimed full coverage and
+// the panel withheld a preset that was actually still useful. Call sites
+// MUST use this rather than re-deriving it. `isWildcard` stays
+// module-private on purpose: exporting it alongside this one would invite a
+// call site to pick the broad, wrong predicate for a coverage question.
+export function coveringWildcardIndex(indexes: any[]): any | null {
+  const objs = (indexes || []).filter((i) => i && typeof i === 'object' && i.key);
+  return objs.find((i) => isFullWildcard(i) && coversFully(i)) ?? null;
+}
+
+// Indexes the service manages, which say nothing about what a user has done.
+// `__dynamic_index` is a wildcard index and `__digest_md5_idx` backs change
+// detection; both appear on some collections and not others, with no visible
+// reason (measured 2026-09-01 — the trigger was not established). Matched by
+// exact name, not prefix: an unrecognised `__`-prefixed index is treated as a
+// user index everywhere this set is consulted — the safe direction, since it
+// may then be flagged or counted, never silently protected or hidden.
+const SYSTEM_INDEX_NAMES = new Set(['_id_', '__dynamic_index', '__digest_md5_idx']);
 
 // Names of indexes that are conservatively redundant: a plain index (no
-// constraint options, never `_id_`) whose key spec — field AND direction — is a
-// strict prefix of another index's. A compound superset fully serves the prefix
-// index's queries, so dropping the plain prefix loses nothing.
+// constraint options, never service-managed) whose key spec — field AND
+// direction — is a strict prefix of another index's. A compound superset
+// fully serves the prefix index's queries, so dropping the plain prefix loses
+// nothing.
 export function redundantIndexNames(indexes: any[]): Set<string> {
   const objs = (indexes || []).filter((i) => i && typeof i === 'object' && i.key);
   const sig = (i: any) => Object.entries(i.key).map(([k, v]) => `${k}:${v}`);
-  const plain = (i: any) => CONSTRAINTS.every((c: string) => i[c] === undefined);
-  // A superset only truly covers the prefix index's queries if it indexes the
-  // same document set under the same collation and is visible to the planner.
-  // partial/sparse index a strict subset of docs; collation restricts which
-  // queries it serves; hidden indexes serve none. (A `unique` superset is fine
-  // — uniqueness doesn't restrict read coverage.)
-  const coversFully = (b: any) =>
-    b.partialFilterExpression === undefined && !b.sparse && b.collation === undefined && !b.hidden;
+  // A FULL wildcard index indexes every scalar path individually, so it
+  // covers any plain SINGLE-field index. It covers nothing else: it serves
+  // one field per plan (measured — a real query IXSCANned one predicate and
+  // FETCH-filtered the other), and it can neither enforce uniqueness nor
+  // expire nor index a subset.
+  const coveringWildcard = coveringWildcardIndex(objs);
   const out = new Set<string>();
   for (const a of objs) {
-    if (a.name === '_id_' || !plain(a)) continue;
+    // Every service-managed index is skipped by name, not only `_id_` — a
+    // plain single-field index like `__digest_md5_idx` (which backs MDH's
+    // differential-sync change detection) would otherwise be flagged
+    // redundant the moment a covering wildcard is present, inviting Drop on
+    // an index the service itself relies on. isWildcard/`!isPlain` alone
+    // don't catch it: it is plain and non-wildcard by key shape.
+    if (SYSTEM_INDEX_NAMES.has(a.name) || isWildcard(a) || !isPlain(a)) continue;
     const as = sig(a);
+    if (coveringWildcard && as.length === 1) {
+      out.add(a.name);
+      continue;
+    }
     const isPrefixOfCoveringSuperset = objs.some((b) => {
       if (b === a || !coversFully(b)) return false;
       const bs = sig(b);
@@ -93,6 +171,30 @@ export function redundantIndexNames(indexes: any[]): Set<string> {
     if (isPrefixOfCoveringSuperset) out.add(a.name);
   }
   return out;
+}
+
+// The question the panel has never answered: what does this collection already
+// have? Returns '' when there is nothing worth saying. Both messages are
+// statements of fact read off the index list, not advice.
+export function collectionIndexSummary(indexes: any[]): string {
+  const objs = (indexes || []).filter((i) => i && typeof i === 'object' && i.key);
+  if (!objs.length) return '';
+  if (coveringWildcardIndex(objs)) {
+    return 'Every field is already indexed individually. A single-field index adds nothing here; compound keys, uniqueness, TTL and sorts still need their own.';
+  }
+  // A broad-but-not-full wildcard (a subpath like `{"a.$**": 1}`, or a
+  // compound wildcard with a prefix field) is a real index, but not one we can
+  // characterize here — it neither covers every field (so "already indexed"
+  // would be false) nor leaves the collection unindexed (so "full scan" would
+  // be false too). This has only ever been observed as a full wildcard live,
+  // but the sentence below is a claim of fact about someone's production
+  // data, and staying silent is the honest answer when we cannot tell.
+  if (objs.some(isWildcard)) return '';
+  const userIndexes = objs.filter((i) => !SYSTEM_INDEX_NAMES.has(i.name));
+  if (userIndexes.length === 0) {
+    return 'No index but _id_ — every query on this collection is a full scan.';
+  }
+  return '';
 }
 
 // Human-readable byte size. '' for null/NaN/Infinity.

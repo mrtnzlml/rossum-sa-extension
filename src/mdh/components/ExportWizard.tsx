@@ -1,7 +1,7 @@
 import { h, Fragment } from 'preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { track } from '../../usage/track.js';
-import { closeModal, ModalBody, ModalActions, ModalFieldLabel } from './Modal.jsx';
+import { closeModal, ModalBody, ModalActions, ModalField } from './Modal.jsx';
 import { AbsentValue, EmptyValue, NullValue, ScalarValue, Segmented } from './ImportControls.jsx';
 import PlanSummary from './PlanSummary.jsx';
 import { EXPORT_FORMATS, getExportFormat, exportFilename } from '../exportFormats.jsx';
@@ -191,33 +191,37 @@ export default function ExportWizard({
 
   return (
     <ModalBody class="export-wizard">
-      <ModalFieldLabel>Scope</ModalFieldLabel>
-      <Segmented
-        value={scope}
-        options={scopeSeg}
-        onChange={setScope}
-        ariaLabel="Export scope"
-        testid="export-scope"
-        tabs
-      />
-      {!filterState.available && filterState.reason && (
-        <div class="import-shape-neutral" style="margin-top:4px">
-          {filterState.reason}
-        </div>
-      )}
+      <ModalField label="Scope">
+        <Segmented
+          value={scope}
+          options={scopeSeg}
+          onChange={setScope}
+          ariaLabel="Export scope"
+          testid="export-scope"
+          tabs
+        />
+        {/* Explains why the "Current filter" option above is disabled, so it belongs
+            inside that field rather than floating between two of them. */}
+        {!filterState.available && filterState.reason && (
+          <div class="import-shape-neutral" style="margin-top:4px">
+            {filterState.reason}
+          </div>
+        )}
+      </ModalField>
 
-      <ModalFieldLabel style="margin-top:10px">Format</ModalFieldLabel>
-      <Segmented
-        value={formatId}
-        options={FORMAT_SEG}
-        onChange={switchFormat}
-        ariaLabel="Export format"
-        testid="export-format"
-        tabs
-      />
+      <ModalField label="Format">
+        <Segmented
+          value={formatId}
+          options={FORMAT_SEG}
+          onChange={switchFormat}
+          ariaLabel="Export format"
+          testid="export-format"
+          tabs
+        />
+      </ModalField>
 
       {fmt.OptionsControls && (
-        <div class="csv-toolbar" style="margin-top:10px">
+        <div class="csv-toolbar">
           <fmt.OptionsControls opts={effOpts} setOpt={setOpt} />
         </div>
       )}

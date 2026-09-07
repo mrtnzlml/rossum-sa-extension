@@ -32,21 +32,44 @@
 .card:has(:global(.export-wizard)) {
   max-width: 1100px;
 }
+/* Opt-in via <ModalBody stable> for content that changes size as the user works
+   (the two index builders switch presets, show a field picker, grow chips). The
+   card takes a STABLE height instead of hugging its content, so the header, the
+   name field, the tab row and the footer never move; the body's one flexible
+   child — the JSON editor — absorbs the difference. Measured before: switching
+   tabs moved the tab row 56px in the regular-index modal and 129px in the
+   search-index one, because a centred card that grows moves its own top edge by
+   half the delta. `min()` keeps the old 85vh behaviour on short viewports. */
+.card:has(.stableBody) {
+  height: min(85vh, 720px);
+}
+.stableBody {
+  flex: 1;
+  /* Without this the body cannot shrink below its content, so a `flex: 1` child
+     never resolves to a height and grows the card instead. */
+  min-height: 0;
+}
 .card:has(:global(.agent-chat)) {
   max-width: 720px;
   width: 92vw;
 }
 
+/* Padding is asymmetric on purpose: 18px on the left to line up with the body,
+   12px on the right so the close button's 28px box still reads as an 18px inset.
+   The 28px target is the tallest thing in the bar, so it — not the padding —
+   sets the 45px header height. */
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
+  gap: 10px;
+  padding: 8px 12px 8px 18px;
   border-bottom: 1px solid var(--border);
 }
 .title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
+  letter-spacing: -0.008em;
 }
 /* Import wizard surfaces the picked file in the header (name · size · rows · cols). */
 .titleSource {
@@ -71,25 +94,50 @@
   flex: none;
 }
 
+/* Was a bare 20px glyph with no padded hit area — the smallest target in the
+   dialog, in its furthest corner. Fitts's Law reads size and distance together. */
 .close {
   background: none;
   border: none;
-  font-size: 20px;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  font-size: 17px;
   color: var(--text-secondary);
   cursor: pointer;
-  padding: 0 4px;
+  padding: 0;
   line-height: 1;
 }
 .close:hover {
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
 .body {
-  padding: 16px 18px;
+  padding: 12px 18px 16px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+}
+/* A label and its control are ONE thing. Left as separate children of .body they
+   are separated by the body's own gap, so the label sits as far from its input as
+   the next section does — measured 16px, and the reason the top of a modal cost
+   177px to reach the first choice. */
+.field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* For the one field whose control absorbs the card's spare height — see
+   .stableBody. Without min-height: 0 the group cannot shrink and the editor
+   inside it grows the card instead. */
+.fieldGrow {
+  flex: 1;
+  min-height: 0;
 }
 .message {
   font-size: 13px;
@@ -124,8 +172,21 @@
   gap: 8px;
   padding-top: 4px;
 }
+/* <ModalActions footer> — for a body that scrolls, where the buttons have to be a
+   sibling of the body rather than its last scrolling child. Owns the padding the
+   body would otherwise have given it. */
+.actionsFooter {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  flex: none;
+}
+/* --text-secondary at 11px measured 4.21:1 on the card — under the 4.5:1 floor
+   for text this size. Weight and tracking carry the "this is a label" job that
+   the lighter colour was doing. */
 .fieldLabel {
   font-size: 11px;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
+  font-weight: 600;
+  letter-spacing: 0.015em;
+  color: var(--text-primary);
+  margin-bottom: 3px;
 }

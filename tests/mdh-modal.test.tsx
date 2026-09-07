@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { h, render } from 'preact';
+import { h, render, Fragment } from 'preact';
 
 // store.js imports chrome during module init via other MDH modules that may
 // be transitively reached; guard with a minimal mock.
@@ -9,6 +9,7 @@ globalThis.chrome = globalThis.chrome || {
   runtime: { onMessage: { addListener: () => {} } },
 };
 
+import { readFileSync } from 'fs';
 import Modal, {
   openModal,
   closeModal,
@@ -17,6 +18,7 @@ import Modal, {
 } from '../src/mdh/components/Modal.jsx';
 import mstyles from '../src/ui/Modal.module.css';
 import { modalContent } from '../src/mdh/store.js';
+import { ModalBody, ModalActions, ModalField } from '../src/ui/Modal.jsx';
 
 function mount() {
   const root = document.createElement('div');
@@ -334,5 +336,156 @@ describe('promptModal', () => {
     rerender(root);
     root.querySelectorAll<HTMLElement>('.' + mstyles.actions + ' button')[0].click();
     await expect(p).resolves.toBeNull();
+  });
+});
+
+// Layout-shift contract. jsdom has no layout, so these assert the STRUCTURE that
+// produces a stable card — the geometry itself was measured in Chrome (regular
+// modal: card height swung 551→661 and the tab row moved 56px before this; the
+// search modal swung 591→850 and moved 129px. Both are 0 after).
+describe('ModalBody stable / ModalActions footer', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    modalContent.value = null;
+  });
+
+  it('marks a stable body so the card height rule can key off it', () => {
+    const root = mount();
+    openModal('Stable', () => <ModalBody stable>content</ModalBody>);
+    rerender(root);
+    const body = root.querySelector('.' + mstyles.body)!;
+    expect(body.classList.contains(mstyles.stableBody)).toBe(true);
+  });
+
+  it('leaves an ordinary body unmarked, so 13 existing consumers keep hugging their content', () => {
+    const root = mount();
+    openModal('Plain', () => <ModalBody>content</ModalBody>);
+    rerender(root);
+    const body = root.querySelector('.' + mstyles.body)!;
+    expect(body.classList.contains(mstyles.stableBody)).toBe(false);
+  });
+
+  it('marks a footer actions row, and leaves a plain one alone', () => {
+    const root = mount();
+    openModal('Footer', () => (
+      <>
+        <ModalActions footer>a</ModalActions>
+        <ModalActions>b</ModalActions>
+      </>
+    ));
+    rerender(root);
+    const rows = [...root.querySelectorAll('.' + mstyles.actions)];
+    expect(rows.map((r) => r.classList.contains(mstyles.actionsFooter))).toEqual([true, false]);
+  });
+
+  // The class is only half the mechanism: without the rules it names, the opt-in
+  // is inert and nothing in jsdom would notice.
+  it('keeps the rules the two opt-ins depend on', () => {
+    const css = readFileSync('src/ui/Modal.module.css', 'utf8');
+    // A stable height on the card, keyed off the body's class.
+    expect(css).toMatch(/\.card:has\(\.stableBody\)\s*\{[^}]*height:/);
+    // The body must be allowed to shrink below its content, or its flexible
+    // child never resolves to a height and grows the card instead.
+    expect(css).toMatch(/\.stableBody\s*\{[^}]*min-height:\s*0/);
+    // A footer needs its own padding: it is a card child, outside .body's.
+    expect(css).toMatch(/\.actionsFooter\s*\{[^}]*padding:/);
+  });
+});
+
+// A label and its control are one unit. jsdom has no layout, so these assert the
+// grouping and the rules that give it its spacing — the geometry was measured in
+// Chrome: label-to-control went from 16px to 3px, and the header from 50 to 45.
+describe('ModalField', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    modalContent.value = null;
+  });
+
+  function mountField(node: any) {
+    const root = mount();
+    openModal('Field', () => <ModalBody>{node}</ModalBody>);
+    rerender(root);
+    return root;
+  }
+
+  it('puts the label and the control in one element, not two body children', () => {
+    const root = mountField(
+      <ModalField label="Name">
+        <input class="the-input" />
+      </ModalField>,
+    );
+    const body = root.querySelector('.' + mstyles.body)!;
+    const field = body.querySelector('.' + mstyles.field)!;
+    const input = root.querySelector('.the-input')!;
+    const label = root.querySelector('.' + mstyles.fieldLabel)!;
+
+    // The body's gap separates SECTIONS. Left as siblings there, a label is pushed
+    // as far from its own input as from the section above it.
+    expect(field.parentElement).toBe(body);
+    expect(field.contains(label)).toBe(true);
+    expect(field.contains(input)).toBe(true);
+    expect(label.nextElementSibling).toBe(input);
+  });
+
+  it('omits the label node entirely when no label is given', () => {
+    const root = mountField(
+      <ModalField>
+        <input class="the-input" />
+      </ModalField>,
+    );
+    expect(root.querySelector('.' + mstyles.fieldLabel)).toBeNull();
+    expect(root.querySelector('.' + mstyles.field + ' .the-input')).not.toBeNull();
+  });
+
+  it('only the grow variant may absorb the card height', () => {
+    const root = mountField(
+      <>
+        <ModalField label="Plain">
+          <div />
+        </ModalField>
+        <ModalField label="Editor" grow>
+          <div />
+        </ModalField>
+      </>,
+    );
+    const fields = [...root.querySelectorAll('.' + mstyles.field)];
+    expect(fields.map((f) => f.classList.contains(mstyles.fieldGrow))).toEqual([false, true]);
+  });
+
+  it('keeps a caller class alongside its own', () => {
+    const root = mountField(
+      <ModalField label="X" class="caller-class">
+        <div />
+      </ModalField>,
+    );
+    const field = root.querySelector('.' + mstyles.field)!;
+    expect(field.classList.contains('caller-class')).toBe(true);
+  });
+
+  // The classes are inert without these rules, and nothing in jsdom would notice.
+  it('keeps the rules the grouping and the header corrections depend on', () => {
+    const css = readFileSync('src/ui/Modal.module.css', 'utf8');
+    expect(css).toMatch(/\.field\s*\{[^}]*flex-direction:\s*column/);
+    // A grown field must be allowed to shrink, or the editor inside grows the card.
+    expect(css).toMatch(/\.fieldGrow\s*\{[^}]*min-height:\s*0/);
+    // Measured 4.21:1 as --text-secondary, under the 4.5:1 floor at 11px.
+    expect(css).toMatch(/\.fieldLabel\s*\{[^}]*color:\s*var\(--text-primary\)/);
+    // A 20px glyph with no padded hit area was the smallest target in the dialog.
+    expect(css).toMatch(/\.close\s*\{[^}]*width:\s*28px/);
+    expect(css).toMatch(/\.close\s*\{[^}]*height:\s*28px/);
+  });
+
+  // The hand-placed margins are what the rhythm replaces; one left behind puts a
+  // single field back out of step, which is invisible in a unit test.
+  it('leaves no hand-placed label margin in the four converted modals', () => {
+    for (const f of [
+      'src/mdh/components/IndexPanel.tsx',
+      'src/mdh/components/SearchIndexPanel.tsx',
+      'src/mdh/components/ImportWizard.tsx',
+      'src/mdh/components/ExportWizard.tsx',
+    ]) {
+      const src = readFileSync(f, 'utf8');
+      expect(src).not.toMatch(/ModalFieldLabel[^>]*margin-top/);
+    }
   });
 });

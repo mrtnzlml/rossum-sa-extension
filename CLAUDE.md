@@ -234,6 +234,9 @@ An app-switcher rail over six apps. Adding one touches three hardcoded switch po
   `useOperationStatus`. Everything else in the app is still Data Storage.
   A collection created by `insert` rather than `collections/create` has NO search index at all —
   not even `default` — so `$search` against it returns zero rows with `status: completed`.
+  Regular indexes differ per collection too: some carry a hidden wildcard index `__dynamic_index`
+  on `{"$**": 1}` (so every scalar path is already indexed) and some carry only `_id_` (so every
+  query is a full scan). What creates it is not established — treat it as an observation.
 - **Audit Log Viewer** (`src/audit/`) — one generic shell driven by per-source descriptors in
   `sources/`. Only `audit_logs` is registered; the descriptor shape exists to host more.
 - **Galaxy** (`src/galaxy/`) — the live org as a 3D force graph on raw three.js + d3-force-3d.
@@ -425,6 +428,29 @@ plan — see Localpages divergence below. These are scoped
 in practice to `.markdown-body`/`.docs-*`/`.source-*` — before adding a bare class to either
 side, check it cannot leak. The print page has its own `src/docs/print.css`.
 
+**A label and its control go in one `ModalField`, never as two `ModalBody` children.** The
+body's gap separates SECTIONS, so a bare label sits as far from its own input as from the
+section above it — measured 16px, and most of the 177px it took to reach a modal's first real
+choice. `<ModalField label="Name">` closes that to 3px; `grow` marks the one field whose
+control absorbs the spare height under a stable card. Hand-placed `style="margin-top:8px"` on a
+label is the anti-pattern it replaces, and a test asserts none survives in the four converted
+modals. The shared header is 45px (`8px 12px 8px 18px`, floored by the close button's 28×28
+target, not by the padding), the title 15px/600, and `ModalFieldLabel` sits on
+`--text-primary` at 600 — as `--text-secondary` it measured 4.21:1 at 11px, under the 4.5:1
+floor. Five consumers (BulkUpdate, BulkDelete, ImportConfirm, RecordEditor, PdfDialog) still
+have ungrouped labels; see the 2026-09-07 spec.
+
+**A modal that changes size as the user works opts into a stable card**:
+`<ModalBody stable>` gives `.card` a definite `height: min(85vh, 720px)`, and the body's one
+flexible child absorbs every appearing/disappearing block — nothing above it moves. Pair it with
+`<ModalActions footer>` (returned as a fragment sibling of the body, so the buttons are a
+card-level flex child rather than the body's last scrolling row) and, for a JSON editor inside,
+`<JsonEditor fill>`, whose `.json-editor-fill .cm-editor { min-height: 0 }` stops the editor
+growing with its document and hands overflow to CodeMirror's own scroller. Both index create
+modals use all three; measurements are in the regular-index spec, section 7b. The default is
+unchanged for the other 13 modal consumers — and `.overlay { align-items: center }` means any
+card that DOES grow moves its own top edge by half the delta, so growth is never local.
+
 `popup.css` has its own variable system, also dark-mode aware; the side panel links it FIRST and
 `sidepanel.css` overrides only the shell, so the shared MDH card has one source of truth. Content
 scripts inject their styles from `init()`, so styles are in the DOM only while the feature is on,
@@ -522,13 +548,16 @@ older ones as history. Currently authoritative per area:
   `2026-08-11-fabry-public-single-gate-design.md`
 - **Onboarding training** — `2026-08-07-partner-onboarding-training-design.md` + `-verification.md`
 - **Inspector** — `2026-07-03-inspector-overhaul-design.md`
-- **MDH** — `2026-08-31-mdh-fuzzy-index-builder-design.md` (search-index presets and Check),
+- **MDH** — `2026-09-01-mdh-regular-index-guidance-design.md` (regular-index presets and wildcard guidance),
+  `2026-08-31-mdh-fuzzy-index-builder-design.md` (search-index presets and Check),
   `2026-08-28-mdh-search-index-v2-migration-design.md` (search indexes),
   `2026-08-12-mdh-stage-link-highlight-design.md`,
   `2026-08-07-mdh-provenance-side-panel-design.md`,
   `2026-06-30-unified-dataset-import-design.md`, `2026-07-04-export-unify-design.md`
 - **DevTools panel** — `2026-07-10-devtools-rossum-panel-design.md`,
   `2026-07-17-devtools-request-bar-curl-design.md`
+- **Modals (shared)** — `2026-09-07-modal-header-rhythm-design.md` (header metrics, `ModalField`,
+  the label-contrast fix)
 - **Popup** — `2026-07-16-popup-unlock-reviewing-annotation-design.md`
 - **Galaxy** — `2026-06-04-galaxy-3d-org-birdview-design.md`
 - **Release automation** — `2026-06-12-chrome-web-store-auto-release-design.md`

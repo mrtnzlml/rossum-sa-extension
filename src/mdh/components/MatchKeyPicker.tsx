@@ -15,10 +15,16 @@ export default function MatchKeyPicker({
   paths,
   keys,
   setKeys,
+  single = false,
 }: {
   paths: string[];
   keys: string[];
   setKeys: (next: string[]) => void;
+  // One field at a time: picking a second REPLACES the first rather than adding
+  // to it. For a consumer whose index can only use one field, a multi-select
+  // control is a control that asks for what it will discard — no wording under
+  // it fixes that, so the constraint lives here instead.
+  single?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
@@ -27,7 +33,7 @@ export default function MatchKeyPicker({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const q = query.trim().toLowerCase();
-  const available = paths.filter((p) => !keys.includes(p));
+  const available = single ? paths : paths.filter((p) => !keys.includes(p));
   const suggestions = (q ? available.filter((p) => p.toLowerCase().includes(q)) : available).slice(
     0,
     50,
@@ -65,7 +71,8 @@ export default function MatchKeyPicker({
   }, [open]);
 
   function add(p: any) {
-    if (!keys.includes(p)) setKeys([...keys, p]);
+    if (single) setKeys([p]);
+    else if (!keys.includes(p)) setKeys([...keys, p]);
     setQuery('');
     setActiveIndex(0);
   }
@@ -120,7 +127,15 @@ export default function MatchKeyPicker({
           class="match-key-input"
           type="text"
           value={query}
-          placeholder={keys.length ? 'Add another field…' : 'Type or pick a field…'}
+          placeholder={
+            single
+              ? keys.length
+                ? 'Replace the field…'
+                : 'Pick one field…'
+              : keys.length
+                ? 'Add another field…'
+                : 'Type or pick a field…'
+          }
           data-testid="match-key-input"
           onInput={onInput}
           onKeyDown={onKeyDown}
